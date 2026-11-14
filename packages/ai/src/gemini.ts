@@ -12,7 +12,7 @@ let _ai: GoogleGenAI | undefined;
 const ai = () => (_ai ??= new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY }));
 
 const STT_MODEL = () => process.env.GEMINI_STT_MODEL ?? "gemini-2.5-flash";
-const TTS_MODEL = () => process.env.GEMINI_TTS_MODEL ?? "gemini-2.5-flash-preview-tts";
+const TTS_MODEL = () => process.env.GEMINI_TTS_MODEL ?? "gemini-3.8-flash-tts";
 const TTS_VOICE = () => process.env.GEMINI_TTS_VOICE ?? "Kore";
 
 export async function geminiTranscribe(wav: Buffer): Promise<Transcription> {
@@ -69,18 +69,41 @@ async function ttsCached(key: string, text: string, lang: string): Promise<Buffe
   } catch {
     /* cache miss */
   }
-  const res = await ai().models.generateContent({
-    model: TTS_MODEL(),
+  const wav = await synthesize(text, lang);
+  await mkdir(cacheDir(), { recursive: true });
+  await writeFile(file, wav);
+  return wav;
+}
+
+/** Newer TTS models use the Interactions API (returns a complete WAV); older ones return raw PCM via generateContent. */
+async function synthesize(text: string, lang: string): Promise<Buffer> {
+  const client = ai();
+  try {
+    const it = await (client as unknown as {
+      interactions: { create: (p: unknown) => Promise<{ output_audio?: { data?: string } }> };
+    }).interactions.create({
+      model: TTS_MODEL(),
+      input: [{ type: "user_input", content: [{ type: "text", text }] }],
+      response_format: { type: "audio" },
+      generation_config: { speech_config: [{ voice: TTS_VOICE() }] },
+    });
+    const data = it.output_audio?.data;
+    if (data) {
+      const buf = Buffer.from(data, "base64");
+      return buf.subarray(0, 4).toString() === "RIFF" ? buf : pcmToWav(buf, 24000);
+    }
+  } catch {
+    /* fall through to the legacy path */
+  }
+  const res = await client.models.generateContent({
+    model: process.env.GEMINI_TTS_FALLBACK_MODEL ?? "gemini-2.5-flash-preview-tts",
     contents: [{ role: "user", parts: [{ text: `Say warmly and slowly (language: ${lang}): ${text}` }] }],
     config: {
       responseModalities: ["AUDIO"],
       speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: TTS_VOICE() } } },
     },
   });
-  const data = res.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData?.data;
-  if (!data) throw new Error("Gemini TTS returned no audio");
-  const wav = pcmToWav(Buffer.from(data, "base64"), 24000); // raw s16le 24 kHz mono → WAV
-  await mkdir(cacheDir(), { recursive: true });
-  await writeFile(file, wav);
-  return wav;
+  const pcm = res.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData?.data;
+  if (!pcm) throw new Error("Gemini TTS returned no audio");
+  return pcmToWav(Buffer.from(pcm, "base64"), 24000);
 }
