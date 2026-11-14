@@ -8,7 +8,9 @@
     "start": "node dist/agent.js start",
     "typecheck": "tsc -b",
     "build": "tsc -b",
-    "test": "node --import tsx --test src/*.test.ts"
+    "test": "node --import tsx --test src/*.test.ts",
+    "dev:agent": "LIVEKIT_URL=ws://localhost:7880 LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=secret API_URL=http://localhost:8788 AGENT_NAME=pillpal-agent PATIENT_ID=00000000-0000-4000-8000-000000000001 node --env-file-if-exists=../.env --import tsx src/agent.ts dev",
+    "dev:local": "node --env-file-if-exists=../.env --import tsx dev/local.ts"
   },
   "dependencies": {
     "@livekit/agents": "^1.10.0",
@@ -20,6 +22,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "livekit-server-sdk": "^2.19.3",
     "tsx": "^4.19.2"
   }
 }
