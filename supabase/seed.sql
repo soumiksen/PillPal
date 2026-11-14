@@ -1,0 +1,2 @@
+-- PillPal demo seed (Role 2): one week of demo history for the demo patient.
+-- TODO: insert patient, medications, dose_events, check_ins, alerts, memories.

@@ -1,0 +1,205 @@
+/** 5.3 REST API request/response bodies (api/ on :8787). */
+import { z } from "zod";
+import { CheckInExtract, RxFields, VisionEvent } from "./ai.js";
+import {
+  CheckInRow,
+  DoseStatus,
+  FoodRule,
+  MealTimes,
+  MedicationRow,
+  MemoryRow,
+  PatientRow,
+  Uuid,
+} from "./db.js";
+
+export const IdResponse = z.object({ id: Uuid });
+export type IdResponse = z.infer<typeof IdResponse>;
+
+export const OkResponse = z.object({ ok: z.literal(true) });
+export type OkResponse = z.infer<typeof OkResponse>;
+
+/** Medication due in the current window (GET /patients/:id/context → due_now[]). */
+export const DueDose = z.object({
+  dose_event_id: Uuid.optional(),
+  medication_id: Uuid,
+  drug: z.string(),
+  dose: z.string(),
+  scheduled_at: z.string(),
+  food_rule: FoodRule,
+});
+export type DueDose = z.infer<typeof DueDose>;
+
+/** GET /patients/:id/context */
+export const PatientContext = z.object({
+  patient: PatientRow,
+  meds: z.array(MedicationRow),
+  due_now: z.array(DueDose),
+  memories: z.array(MemoryRow),
+  last_checkins: z.array(CheckInRow),
+});
+export type PatientContext = z.infer<typeof PatientContext>;
+
+/** POST /patients → IdResponse */
+export const CreatePatientBody = z.object({
+  name: z.string().min(1),
+  preferred_name: z.string().optional(),
+  phone: z.string().min(1),
+  language: z.string().default("en"),
+  meal_times: MealTimes.optional(),
+  caregiver_name: z.string().optional(),
+  caregiver_phone: z.string().optional(),
+  doctor_name: z.string().optional(),
+  address: z.string().optional(),
+  consent_at: z.string().optional(),
+});
+export type CreatePatientBody = z.infer<typeof CreatePatientBody>;
+
+/** PATCH /patients/:id → IdResponse */
+export const UpdatePatientBody = CreatePatientBody.partial().extend({
+  care_chat_id: z.string().optional(),
+});
+export type UpdatePatientBody = z.infer<typeof UpdatePatientBody>;
+
+/** POST /rx/parse (multipart field "photo") → RxFields */
+export const RxParseResponse = RxFields;
+export type RxParseResponse = RxFields;
+
+/**
+ * POST /medications (JSON fields; or multipart with these fields + "pill_photo") → IdResponse.
+ * The API stores the photo and fills pill_description via ai.describePill.
+ */
+export const CreateMedicationBody = z.object({
+  patient_id: Uuid,
+  drug: z.string().min(1),
+  strength: z.string(),
+  dose: z.string(),
+  times: z.array(z.string()),
+  food_rule: FoodRule,
+  avoid_foods: z.array(z.string()).default([]),
+  pills_left: z.number().int().optional(),
+  refill_info: z.string().optional(),
+  confirmed_by: z.string(),
+  pill_photo_b64: z.string().optional(),
+});
+export type CreateMedicationBody = z.infer<typeof CreateMedicationBody>;
+
+/** PATCH /medications/:id → IdResponse */
+export const UpdateMedicationBody = CreateMedicationBody.omit({ patient_id: true })
+  .partial()
+  .extend({ active: z.boolean().optional() });
+export type UpdateMedicationBody = z.infer<typeof UpdateMedicationBody>;
+
+/** POST /doses → IdResponse */
+export const CreateDoseBody = z.object({
+  patient_id: Uuid,
+  medication_id: Uuid,
+  status: DoseStatus,
+  confirmed_via: z.string(),
+  evidence_jpeg_b64: z.string().optional(),
+});
+export type CreateDoseBody = z.infer<typeof CreateDoseBody>;
+
+/** POST /symptoms → OkResponse */
+export const SymptomBody = z.object({
+  patient_id: Uuid,
+  name: z.string(),
+  severity: z.string(),
+  quote: z.string(),
+});
+export type SymptomBody = z.infer<typeof SymptomBody>;
+
+/** POST /memories → IdResponse */
+export const MemoryBody = z.object({
+  patient_id: Uuid,
+  fact: z.string().min(1),
+});
+export type MemoryBody = z.infer<typeof MemoryBody>;
+
+export const CallKind = z.enum(["check_in", "reminder", "group", "inbound"]);
+export type CallKind = z.infer<typeof CallKind>;
+
+/** POST /calls/started → IdResponse */
+export const CallStartedBody = z.object({
+  patient_id: Uuid,
+  room_name: z.string(),
+  chert_call_id: z.string().optional(),
+  kind: CallKind,
+});
+export type CallStartedBody = z.infer<typeof CallStartedBody>;
+
+/** POST /calls/ended → CallEndedResponse (runs ai.extractCheckIn) */
+export const CallEndedBody = z.object({
+  room_name: z.string(),
+  transcript: z.string(),
+  language: z.string(),
+  vision_events: z.array(VisionEvent),
+});
+export type CallEndedBody = z.infer<typeof CallEndedBody>;
+
+export const CallEndedResponse = z.object({
+  check_in_id: Uuid,
+  check_in: CheckInExtract,
+});
+export type CallEndedResponse = z.infer<typeof CallEndedResponse>;
+
+/** POST /escalate → red alert iMessage, end 1:1 call, start group FaceTime */
+export const EscalateBody = z.object({
+  patient_id: Uuid,
+  room_name: z.string(),
+  reason: z.string(),
+  summary: z.string(),
+});
+export type EscalateBody = z.infer<typeof EscalateBody>;
+
+export const EscalateResponse = z.object({
+  alert_id: Uuid,
+  group_call_id: z.string().nullable(),
+});
+export type EscalateResponse = z.infer<typeof EscalateResponse>;
+
+/** POST /dial */
+export const DialBody = z.object({
+  patient_id: Uuid,
+  kind: z.literal("check_in"),
+});
+export type DialBody = z.infer<typeof DialBody>;
+
+export const DialResponse = z.object({
+  chert_call_id: z.string(),
+  room_name: z.string(),
+});
+export type DialResponse = z.infer<typeof DialResponse>;
+
+/** POST /demo/remind → tapback reminder now */
+export const DemoRemindBody = z.object({
+  patient_id: Uuid,
+  medication_id: Uuid,
+});
+export type DemoRemindBody = z.infer<typeof DemoRemindBody>;
+
+export const DemoRemindResponse = z.object({
+  dose_event_id: Uuid,
+  chert_message_id: z.string(),
+});
+export type DemoRemindResponse = z.infer<typeof DemoRemindResponse>;
+
+/** POST /reports/generate → Brief */
+export const GenerateReportBody = z.object({ patient_id: Uuid });
+export type GenerateReportBody = z.infer<typeof GenerateReportBody>;
+
+/** POST /notify/dose-change → text + voice note + group chat */
+export const DoseChangeBody = z.object({
+  patient_id: Uuid,
+  medication_id: Uuid,
+  old_dose: z.string(),
+  new_dose: z.string(),
+  doctor_note: z.string(),
+});
+export type DoseChangeBody = z.infer<typeof DoseChangeBody>;
+
+export const DoseChangeResponse = z.object({
+  patient_text: z.string(),
+  english_text: z.string(),
+  sent: z.object({ text: z.boolean(), voice_note: z.boolean(), group_chat: z.boolean() }),
+});
+export type DoseChangeResponse = z.infer<typeof DoseChangeResponse>;
