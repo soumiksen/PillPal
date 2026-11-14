@@ -9,9 +9,9 @@ PillPal is a medication companion that lives inside FaceTime and iMessage. At pi
 | `web/` | Role 1 · Frontend | Next.js caregiver + doctor portal on `:3000` (not created yet) |
 | `api/` | Role 2 · Backend | Hono REST API on `:8787`, Chert iMessage + FaceTime, scheduler |
 | `supabase/` | Role 2 · Backend | `schema.sql`, `seed.sql` |
-| `agent/` | Role 3 · AI Eng. | Pal, the LiveKit voice/video agent (not created yet) |
+| `agent/` | Role 3 · AI Eng. | Pal, the LiveKit voice/video agent |
 | `packages/shared/` | Role 3 | `@pillpal/shared` — zod schemas + TS types for every DB row, API body, AI return type |
-| `packages/ai/` | Role 3 | `@pillpal/ai` — every Claude + Gemini call (stubs for now) |
+| `packages/ai/` | Role 3 | `@pillpal/ai` — every Claude + Gemini call (real when `ANTHROPIC_API_KEY`/`GOOGLE_API_KEY` are set, offline stubs otherwise) |
 | `docs/contracts.md` | Role 3 | The shared contracts. Read this first. |
 
 ## How to run

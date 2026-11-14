@@ -11,12 +11,20 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "typecheck": "tsc -b",
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "test": "node --import tsx --test src/*.test.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "@google/genai": "^3.3.0",
     "@pillpal/shared": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
   }
 }
