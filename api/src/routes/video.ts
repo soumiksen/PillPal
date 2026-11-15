@@ -26,7 +26,7 @@ const sameSecret = (a: string, b: string) =>
 const demoCode: MiddlewareHandler = async (c, next) => {
   const code = c.req.header("x-demo-code");
   if (!env.DEMO_ACCESS_CODE) throw new HTTPException(503, { message: "DEMO_ACCESS_CODE is not set" });
-  if (!code || !sameSecret(code, env.DEMO_ACCESS_CODE)) throw new HTTPException(401, { message: "wrong_code" });
+  if (!code || !sameSecret(code.trim(), env.DEMO_ACCESS_CODE.trim())) throw new HTTPException(401, { message: "wrong_code" });
   return next();
 };
 
@@ -163,6 +163,7 @@ const DIRECTOR_HTML = `<!doctype html>
   .s1 { background: #8fd14f; color: #111; } .s2 { background: #ff6b5b; color: #111; } .reset { background: #444; color: #eee; min-height: 72px; font-size: 22px; }
   #status, #msg { width: min(560px, 100%); font: 15px/1.5 ui-monospace, monospace; white-space: pre-wrap; background: #1c1c1c; border-radius: 12px; padding: 12px; box-sizing: border-box; }
   #msg:empty { display: none; }
+  form[hidden] { display: none !important; }
   form { display: flex; gap: 8px; width: min(560px, 100%); } input { flex: 1; font-size: 20px; padding: 10px; border-radius: 10px; border: 1px solid #555; background: #222; color: #eee; }
   form button { width: auto; min-height: 0; font-size: 18px; padding: 10px 18px; background: #8fd14f; color: #111; }
 </style></head><body>
@@ -178,10 +179,10 @@ const DIRECTOR_HTML = `<!doctype html>
   let code = ""; try { code = localStorage.getItem(KEY) || ""; } catch {}
   const form = document.getElementById("codeForm"), msg = document.getElementById("msg"), status = document.getElementById("status");
   const askCode = () => { form.hidden = false; document.getElementById("code").focus(); };
-  form.onsubmit = (e) => { e.preventDefault(); code = document.getElementById("code").value.trim(); try { localStorage.setItem(KEY, code); } catch {} form.hidden = true; refresh(); };
+  form.onsubmit = (e) => { e.preventDefault(); code = document.getElementById("code").value.trim(); try { localStorage.setItem(KEY, code); } catch {} form.hidden = true; msg.textContent = "Checking the code…"; refresh().then(() => { if (form.hidden) msg.textContent = "✓ Code saved. Tap a scene."; }); };
   async function call(method, path) {
     const r = await fetch(path, { method, headers: { "x-demo-code": code } });
-    if (r.status === 401) { askCode(); throw new Error("Access code needed"); }
+    if (r.status === 401) { askCode(); throw new Error("That access code is not right (use DEMO_ACCESS_CODE from .env)"); }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || j.message || ("HTTP " + r.status));
     return j;
