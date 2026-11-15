@@ -6,6 +6,9 @@ import { usePatients, type RosterEntry } from "@/lib/usePatients";
 import { languageName } from "@/lib/languages";
 import { compartmentState, lastSevenDays, weekStats, type CompartmentState } from "@/components/pillbox";
 import { Input, Panel, cn } from "@/components/ui";
+import { JoinByCode } from "@/components/care-team";
+import { useRequireAccount } from "@/lib/account";
+import { USE_MOCKS } from "@/lib/api";
 
 const DAY_CLS: Record<CompartmentState, string> = {
   taken: "bg-ok",
@@ -28,14 +31,16 @@ function summarize(e: RosterEntry) {
 }
 
 export default function DoctorPatientsPage() {
-  const { patients, loading, error } = usePatients();
+  const account = useRequireAccount("doctor");
+  const { patients, loading: rosterLoading, error, reload } = usePatients();
+  const loading = rosterLoading || account.status !== "ready";
   const [q, setQ] = useState("");
 
   const rows = patients
     .map((e) => ({ e, s: summarize(e) }))
     .filter(({ e }) => e.patient.name.toLowerCase().includes(q.trim().toLowerCase()))
     .sort((a, b) => Number(b.s.needs) - Number(a.s.needs) || a.s.pct - b.s.pct);
-  const doctor = patients[0]?.patient.doctor_name;
+  const doctor = USE_MOCKS ? patients[0]?.patient.doctor_name : account.profile?.full_name;
   const needCount = rows.filter((r) => r.s.needs).length;
 
   return (
@@ -62,9 +67,11 @@ export default function DoctorPatientsPage() {
       {!loading && rows.length === 0 ? (
         <Panel className="p-7">
           <p className="font-display text-2xl font-semibold">{q ? "No patient by that name" : "No patients yet"}</p>
-          <p className="mt-1 text-ink-soft">Patients appear here once a caregiver sets them up.</p>
+          <p className="mt-1 text-ink-soft">Ask a patient&apos;s caregiver for the code on their PillPal page, then add it below.</p>
         </Panel>
       ) : null}
+
+      {USE_MOCKS ? null : <JoinByCode onJoined={reload} />}
 
       <ul className="grid gap-4 lg:grid-cols-2">
         {rows.map(({ e, s }) => {

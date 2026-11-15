@@ -23,7 +23,10 @@ export interface Roster {
   patients: RosterEntry[];
   loading: boolean;
   error: string | null;
+  /** Re-read the list (after joining a patient with a code). */
+  reload: () => void;
 }
+const noop = () => {};
 
 const toEntry = (s: ReturnType<typeof mock.getAll>[number]): RosterEntry => ({
   patient: s.patient,
@@ -37,11 +40,11 @@ const noStates: ReturnType<typeof mock.getAll> = [];
 function useMockRoster(): Roster {
   const states = useSyncExternalStore(mock.subscribe, mock.getAll, () => noStates);
   const isClient = useSyncExternalStore(mock.subscribe, () => true, () => false);
-  return { patients: states.map(toEntry), loading: !isClient, error: null };
+  return { patients: states.map(toEntry), loading: !isClient, error: null, reload: noop };
 }
 
 function useSupabaseRoster(): Roster {
-  const [data, setData] = useState<Roster>({ patients: [], loading: true, error: null });
+  const [data, setData] = useState<Omit<Roster, "reload">>({ patients: [], loading: true, error: null });
 
   const load = useCallback(async () => {
     if (!supabase) {
@@ -83,12 +86,17 @@ function useSupabaseRoster(): Roster {
       .on("postgres_changes", { event: "*", schema: "public", table: "dose_events" }, () => void load())
       .on("postgres_changes", { event: "*", schema: "public", table: "alerts" }, () => void load())
       .subscribe();
+    // Row-level security: the list depends on who is signed in.
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT") setTimeout(() => void load(), 0);
+    });
     return () => {
+      sub.subscription.unsubscribe();
       void supabase?.removeChannel(channel);
     };
   }, [load]);
 
-  return data;
+  return { ...data, reload: () => void load() };
 }
 
 export function usePatients(): Roster {

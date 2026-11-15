@@ -23,27 +23,29 @@ npm run dev                  # http://localhost:3000
 
 | Route | For | What it shows |
 | --- | --- | --- |
-| `/` | Everyone | Sign in: pick **Caregiver** or **Doctor** (demo sign-in, no password) |
+| `/` | Everyone | **Sign in / Create account** (email + password; choose Caregiver or Doctor at sign-up) |
 | `/caregiver` | Caregiver | Patient header (language badge), urgent red-alert banner (FaceTime / Call 911 / I'm handling it), **this week's pill box**: 7 days × morning/midday/evening compartments whose lids open when a dose is confirmed (taken, wrong pill caught, missed, due), the latest wrong-pill catch, next compartment + "Start check-in call", lids-opened count, **live Call room** (transcript in the patient's language + English, pill/plate check verdicts), check-in with quotes and camera observations, alerts, demo controls |
-| `/doctor` | Doctor | **Patient list**: every patient with % taken, a 7-day strip, open alerts; patients who need a look sort first; search by name |
+| `/doctor` | Doctor | **Patient list**: patients who shared their code with you, with % taken, a 7-day strip, open alerts; add a patient by code; search by name |
 | `/doctor/[patientId]` | Doctor | One patient's week: compact pill box, adherence by medicine, mood trend, flagged moments, "Write this week's brief" (summary + questions for the doctor), quotes with English, medicines with **Change dose** dialog that notifies the family |
 | `/onboard` | Caregiver / doctor | 3 steps: patient details (30 Gemini Live languages) + consent → medicines from a **label photo** (AI-read, editable) + pill reference photo → review and start |
 
-Mock mode has four fictional patients for the doctor list (Rose is the live demo patient; scripted calls play on her).
+## Accounts and live data
 
-## Mock mode vs live API
+The portal runs on the real API and Supabase by default. It needs `supabase/002_accounts.sql` applied once.
 
-`NEXT_PUBLIC_USE_MOCKS=true` (default) runs a full in-browser simulation of the backend, including a scripted
-check-in call (Spanish, wrong pill caught, right pill logged), the red-flag escalation into a group FaceTime,
-the iMessage ❤️ reminder, label parsing, and the weekly brief. It is also the **stage backup** if the API is down.
+- **Sign up / sign in** with email + password (Supabase Auth). Pick Caregiver or Doctor at sign-up; the role is
+  saved in `profiles` by a trigger. Turn off "Confirm email" in Supabase Auth settings so new accounts work at once.
+- **Caregiver**: sets up a patient (`POST /patients` adds them to the patient's `care_team`), then sees that patient's
+  pill box. Their page shows a 6-character **share code**.
+- **Doctor**: enters a caregiver's share code (`join_patient` RPC) to add that patient to their list.
+- **Row-level security**: a signed-in user reads only their own care team's rows; the anon key alone reads nothing.
+- Every API call sends `Authorization: Bearer <Supabase access token>`; the API checks it and the care team.
+- Reads Supabase with the user's session and re-reads on Realtime changes to `dose_events`, `alerts`, `check_ins`,
+  `calls`, `medications`. Alerts are marked handled by updating `alerts.acknowledged_at`.
+- The API's scheduler creates each day's pending `dose_events`, so the pill box fills in from day one.
 
-Set `NEXT_PUBLIC_USE_MOCKS=false` after the backend merges. The portal then:
-
-- calls the REST API at `NEXT_PUBLIC_API_URL` (contracts §5.3): `POST /patients`, `POST /rx/parse` (multipart `photo`),
-  `POST /medications` (JSON `CreateMedicationBody` with `pill_photo_b64`), `PATCH /medications/:id`, `POST /notify/dose-change`,
-  `POST /reports/generate`, `POST /dial`, `POST /demo/remind`
-- reads Supabase with the anon key and re-reads on Realtime changes to `dose_events`, `alerts`, `check_ins`, `calls`, `medications`
-- marks alerts handled by updating `alerts.acknowledged_at`
+`NEXT_PUBLIC_USE_MOCKS=true` is an emergency fallback only: an in-browser simulation with four fictional patients
+and no accounts. Never use it for judging.
 
 ## Notes for Role 3 (merge)
 
