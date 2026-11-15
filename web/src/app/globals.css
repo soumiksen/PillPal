@@ -1,0 +1,104 @@
+@import "tailwindcss";
+@import "@fontsource-variable/urbanist";
+
+/* PillPal — "fresh lime clinic" tokens (inspired by bright health dashboards)
+   mist     #ECEFEA  app background, cool grey-green
+   paper    #FFFFFF  cards
+   ink      #1E271C  text: deep olive-black
+   teal*    #3F6212  primary buttons / links (deep leaf green, passes AA with white)
+   lime     #A3E635  brand highlight (always with dark text)
+   char     #2F362D  dark side panel
+   Status colours are always paired with an icon + word, never colour alone. */
+@theme {
+  --color-mist: #eceeea;
+  --color-paper: #ffffff;
+  --color-ink: #1e271c;
+  --color-ink-soft: #4a5547;
+  --color-ink-faint: #737d70;
+  --color-teal: #3f6212;
+  --color-teal-deep: #2c4a0b;
+  --color-mint: #d9f99d;
+  --color-mint-soft: #f0fbdc;
+  --color-line: #e4e8e1;
+
+  --color-lime: #a3e635;
+  --color-lime-deep: #84cc16;
+  --color-char: #2f362d;
+  --color-char-2: #3b4339;
+  --color-char-line: #4b5448;
+
+  --color-ok: #3f7d0f;
+  --color-ok-wash: #ecfccb;
+  --color-wait: #64706a;
+  --color-wait-wash: #eff1ee;
+  --color-caught: #b45309;
+  --color-caught-wash: #fff1db;
+  --color-missed: #c0261c;
+  --color-missed-wash: #fdeceb;
+
+  --font-sans: "Urbanist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Urbanist Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-chip: 999px;
+  --radius-panel: 28px;
+  --radius-field: 14px;
+
+  --shadow-lift: 0 1px 2px rgb(30 39 28 / 0.04), 0 12px 32px -16px rgb(30 39 28 / 0.22);
+}
+
+html {
+  background: var(--color-mist);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-teal);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection {
+  background: var(--color-mint);
+}
+
+/* The one orchestrated motion: a soft pulse on the live-call dot. */
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 rgb(163 230 53 / 0.6); }
+  70% { box-shadow: 0 0 0 10px rgb(163 230 53 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(163 230 53 / 0); }
+}
+.live-dot {
+  animation: live-pulse 1.8s ease-out infinite;
+}
+
+/* Arrival of a new event in the live call feed (answers a real change). */
+@keyframes arrive {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.arrive {
+  animation: arrive 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot, .arrive { animation: none; }
+  * { scroll-behavior: auto !important; transition: none !important; }
+}
