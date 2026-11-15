@@ -2,8 +2,8 @@
 // Typed client for the PillPal REST API (contracts §5.3).
 // Real API + Supabase by default. NEXT_PUBLIC_USE_MOCKS=true turns on the in-browser demo data (emergency fallback only).
 import * as mock from "./mock";
-import type { Brief, CreateMedicationBody, CreatePatientBody, Medication, RxFields } from "./types";
-import type { UpdateMedicationBody } from "@pillpal/shared";
+import type { Brief, CreateMedicationBody, CreatePatientBody, Medication, Patient, RxFields } from "./types";
+import type { UpdateMedicationBody, UpdatePatientBody } from "@pillpal/shared";
 
 const toBase64 = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -57,6 +57,15 @@ export const api = {
       return { id: mock.DEMO_PATIENT_ID };
     }
     return req("/patients", { method: "POST", body: JSON.stringify(body) });
+  },
+
+  /** PATCH /patients/:id — only the fields that changed ("" clears an optional field). */
+  async updatePatient(id: string, body: UpdatePatientBody): Promise<{ id: string }> {
+    if (USE_MOCKS) {
+      mock.upsertPatient(body as Partial<Patient>);
+      return { id };
+    }
+    return req(`/patients/${id}`, { method: "PATCH", body: JSON.stringify(body) });
   },
 
   /** POST /rx/parse — multipart field "photo". */

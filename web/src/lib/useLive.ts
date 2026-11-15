@@ -23,10 +23,12 @@ export interface LiveData {
   week: DoseEvent[];
   loading: boolean;
   error: string | null;
+  /** Re-read everything (after editing the patient: the patients table is not on Realtime). */
+  reload: () => void;
 }
 
 const empty: LiveData = {
-  patient: null, meds: [], doses: [], alerts: [], checkins: [], calls: [], callFeed: [], history: [], week: [], loading: true, error: null,
+  patient: null, meds: [], doses: [], alerts: [], checkins: [], calls: [], callFeed: [], history: [], week: [], loading: true, error: null, reload: () => {},
 };
 
 const serverSnapshot = null;
@@ -37,7 +39,7 @@ function useMockLive(patientId: string): LiveData {
   const isClient = useSyncExternalStore(mock.subscribe, () => true, () => false);
   if (!isClient) return empty;
   if (!s) return { ...empty, loading: false, error: "We couldn't find that patient." };
-  return { ...s, week: [...s.pastWeek, ...s.doses], loading: false, error: null };
+  return { ...s, week: [...s.pastWeek, ...s.doses], loading: false, error: null, reload: () => {} };
 }
 
 function useSupabaseLive(patientId: string): LiveData {
@@ -100,6 +102,7 @@ function useSupabaseLive(patientId: string): LiveData {
       week,
       loading: false,
       error: err,
+      reload: () => {},
     });
   }, [patientId]);
 
@@ -121,7 +124,7 @@ function useSupabaseLive(patientId: string): LiveData {
     };
   }, [load, patientId]);
 
-  return data;
+  return { ...data, reload: () => void load() };
 }
 
 export function useLive(patientId: string = PATIENT_ID): LiveData {

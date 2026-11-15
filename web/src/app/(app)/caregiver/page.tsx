@@ -13,6 +13,7 @@ import { CallRoom } from "@/components/caregiver/call-room";
 import { AlertsPanel, CheckInPanel, PatientHeader, UrgentBanner } from "@/components/caregiver/panels";
 import { PillBox, PillBoxLegend, weekStats } from "@/components/pillbox";
 import { DemoBar } from "@/components/demo-bar";
+import { EditPatientDialog } from "@/components/edit-patient";
 import { Button, Panel } from "@/components/ui";
 
 const subscribeMinute = (cb: () => void) => {
@@ -31,6 +32,7 @@ export default function CaregiverPage() {
   const patientId = USE_MOCKS ? PATIENT_ID : (mine.find((p) => p.id === (picked ?? remembered))?.id ?? mine[0]?.id ?? "");
   const d = useLive(patientId);
   const [calling, setCalling] = useState(false);
+  const [editing, setEditing] = useState(false);
   const now = useSyncExternalStore(subscribeMinute, minuteNow, () => 0);
 
   if (account.status !== "ready" || roster.loading || (patientId && d.loading)) return <p className="p-6 text-ink-soft">Loading this week&apos;s pill box…</p>;
@@ -90,7 +92,17 @@ export default function CaregiverPage() {
       <div className="flex min-w-0 flex-col gap-4">
         {d.error ? <p className="rounded-[14px] bg-caught-wash px-4 py-2 text-caught">{d.error}</p> : null}
         <Panel className="p-6">
-          <PatientHeader patient={patient} onCall={startCall} calling={calling} live={Boolean(activeCall)} />
+          <PatientHeader patient={patient} onCall={startCall} calling={calling} live={Boolean(activeCall)} onEdit={() => setEditing(true)} />
+          <EditPatientDialog
+            key={`${patient.id}-${editing}`}
+            patient={patient}
+            open={editing}
+            onOpenChange={setEditing}
+            onSaved={() => {
+              d.reload();
+              roster.reload();
+            }}
+          />
           {mine.length > 1 ? (
             <label className="mt-4 flex items-center gap-2 text-[15px] font-semibold text-ink-soft">
               Caring for

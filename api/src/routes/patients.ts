@@ -47,7 +47,10 @@ patients.patch("/:id", requireUser, async (c) => {
   if (Object.keys(body).length === 0) {
     throw new ValidationError([{ path: "(body)", message: "Nothing to update" }]);
   }
-  const rows = must("update patient", await db.from("patients").update(body).eq("id", id).select("id"));
+  // "" means "clear this optional field" (stored as NULL); name, phone and language can never be cleared.
+  const clearable = new Set(["preferred_name", "caregiver_name", "caregiver_phone", "doctor_name", "address"]);
+  const patch = Object.fromEntries(Object.entries(body).map(([k, v]) => [k, clearable.has(k) && v === "" ? null : v]));
+  const rows = must("update patient", await db.from("patients").update(patch).eq("id", id).select("id"));
   if (rows.length === 0) throw notFound("patient");
   return c.json({ id } satisfies IdResponse);
 });

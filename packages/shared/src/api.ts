@@ -55,7 +55,24 @@ export const CreatePatientBody = z.object({
 export type CreatePatientBody = z.infer<typeof CreatePatientBody>;
 
 /** PATCH /patients/:id → IdResponse */
-export const UpdatePatientBody = CreatePatientBody.partial().extend({
+/** International phone number, e.g. +18175550142 (Chert needs E.164 to dial or text). */
+const E164 = z.string().regex(/^\+[1-9]\d{6,14}$/, "Use the international format, like +18175550142");
+
+/**
+ * Every field optional and WITHOUT defaults: building this from CreatePatientBody.partial() would inject
+ * language: "en" into every PATCH and silently reset the patient's language. "" clears an optional text field.
+ */
+export const UpdatePatientBody = z.object({
+  name: z.string().trim().min(1).optional(),
+  preferred_name: z.string().trim().optional(),
+  phone: E164.optional(),
+  language: z.string().trim().min(2).optional(),
+  meal_times: MealTimes.optional(),
+  caregiver_name: z.string().trim().optional(),
+  caregiver_phone: E164.or(z.literal("")).optional(),
+  doctor_name: z.string().trim().optional(),
+  address: z.string().trim().optional(),
+  consent_at: z.string().optional(),
   care_chat_id: z.string().optional(),
 });
 export type UpdatePatientBody = z.infer<typeof UpdatePatientBody>;
