@@ -1,6 +1,6 @@
 "use client";
 // Typed client for the PillPal REST API (contracts §5.3).
-// NEXT_PUBLIC_USE_MOCKS defaults to true so the portal works before the backend is merged.
+// Real API + Supabase by default. NEXT_PUBLIC_USE_MOCKS=true turns on the in-browser demo data (emergency fallback only).
 import * as mock from "./mock";
 import type { Brief, CreateMedicationBody, CreatePatientBody, Medication, RxFields } from "./types";
 import type { UpdateMedicationBody } from "@pillpal/shared";
@@ -13,18 +13,29 @@ const toBase64 = (file: File) =>
     r.readAsDataURL(file);
   });
 
-export const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS !== "false";
+export const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 export const PATIENT_ID = process.env.NEXT_PUBLIC_PATIENT_ID ?? mock.DEMO_PATIENT_ID;
 
+const ERRORS: Record<string, string> = {
+  sign_in_required: "Your session ended. Sign in again.",
+  not_on_care_team: "You're not on this patient's care team.",
+  patient_has_no_phone: "Add the patient's phone number first.",
+};
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  // The API checks the Supabase session and the care team on every web route.
+  const { accessToken } = await import("./account");
+  const token = await accessToken();
+  const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   const res = await fetch(`${API}${path}`, {
     ...init,
-    headers: init?.body instanceof FormData ? init?.headers : { "Content-Type": "application/json", ...init?.headers },
+    headers: init?.body instanceof FormData ? { ...auth, ...init?.headers } : { "Content-Type": "application/json", ...auth, ...init?.headers },
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`${init?.method ?? "GET"} ${path} failed (${res.status}). ${text.slice(0, 160)}`);
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    const code = body?.error ?? "";
+    throw new Error(ERRORS[code] ?? `Something went wrong (${res.status}${code ? `: ${code}` : ""}). Try again.`);
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }

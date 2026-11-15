@@ -6,6 +6,8 @@ import { ClipboardPlus, LogOut, PillBottle, Users } from "lucide-react";
 import { Wordmark } from "./brand";
 import { cn } from "./ui";
 import { USE_MOCKS } from "@/lib/api";
+import { signOut, useAccount } from "@/lib/account";
+import { useRouter } from "next/navigation";
 
 type NavItem = { href: string; label: string; short?: string; Icon: typeof Users };
 
@@ -87,9 +89,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <Suspense fallback={<div className="h-[150px]" />}>
             <SideNav />
           </Suspense>
-          <Link href="/" className="mx-6 mt-2 inline-flex items-center gap-2 text-[15px] font-semibold text-ink-faint hover:text-ink">
-            <LogOut className="size-4" aria-hidden /> Switch role
-          </Link>
+          <AccountBox />
           <div className="mt-auto p-4">
             <div className="relative overflow-hidden rounded-[22px] bg-mist p-5">
               <PillDoodles />
@@ -110,9 +110,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <Suspense fallback={null}>
               <TopNav />
             </Suspense>
-            <Link href="/" aria-label="Switch role" className="rounded-full p-2 text-ink-soft hover:bg-paper">
-              <LogOut className="size-4" aria-hidden />
-            </Link>
+            <SignOutButton compact />
           </nav>
         </header>
 
@@ -120,6 +118,44 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+    </div>
+  );
+}
+
+function SignOutButton({ compact }: { compact?: boolean }) {
+  const router = useRouter();
+  const label = USE_MOCKS ? "Switch role" : "Sign out";
+  return (
+    <button
+      type="button"
+      aria-label={compact ? label : undefined}
+      onClick={async () => {
+        await signOut();
+        router.replace("/");
+      }}
+      className={
+        compact
+          ? "cursor-pointer rounded-full p-2 text-ink-soft hover:bg-paper"
+          : "inline-flex cursor-pointer items-center gap-2 text-[15px] font-semibold text-ink-faint hover:text-ink"
+      }
+    >
+      <LogOut className="size-4" aria-hidden />
+      {compact ? null : label}
+    </button>
+  );
+}
+
+function AccountBox() {
+  const { profile, session } = useAccount();
+  return (
+    <div className="mx-6 mt-2 flex flex-col gap-2 border-t border-line pt-4">
+      {profile || session ? (
+        <p className="text-[15px] leading-snug">
+          <span className="block font-bold">{profile?.full_name || session?.user.email}</span>
+          <span className="text-ink-faint">{profile?.role === "doctor" ? "Doctor" : "Caregiver"} account</span>
+        </p>
+      ) : null}
+      <SignOutButton />
     </div>
   );
 }

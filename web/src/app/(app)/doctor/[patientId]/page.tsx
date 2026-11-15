@@ -6,6 +6,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { ArrowLeft, MessageCircleQuestion, Pencil, Send, ShieldAlert, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLive } from "@/lib/useLive";
+import { useRequireAccount } from "@/lib/account";
 import { api } from "@/lib/api";
 import { languageName } from "@/lib/languages";
 import type { Brief, DoseEvent, Medication } from "@/lib/types";
@@ -18,6 +19,7 @@ const fmtWhen = (iso: string) =>
 
 export default function DoctorPatientPage() {
   const { patientId } = useParams<{ patientId: string }>();
+  useRequireAccount("doctor");
   const d = useLive(patientId);
   const [brief, setBrief] = useState<Brief | null>(null);
   const [writing, setWriting] = useState(false);

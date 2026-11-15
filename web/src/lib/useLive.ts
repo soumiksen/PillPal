@@ -44,6 +44,10 @@ function useSupabaseLive(patientId: string): LiveData {
   const [data, setData] = useState<LiveData>(empty);
 
   const load = useCallback(async () => {
+    if (!patientId) {
+      setData({ ...empty, loading: false });
+      return;
+    }
     if (!supabase) {
       setData({ ...empty, loading: false, error: "Supabase keys are missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, or use mocks." });
       return;
@@ -103,7 +107,7 @@ function useSupabaseLive(patientId: string): LiveData {
     // Initial fetch, then Realtime-driven refetches (external system → state).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-    if (!supabase) return;
+    if (!supabase || !patientId) return;
     const channel = supabase
       .channel(`pillpal-${patientId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "dose_events", filter: `patient_id=eq.${patientId}` }, () => void load())

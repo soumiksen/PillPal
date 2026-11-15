@@ -2,12 +2,12 @@
 import { useState } from "react";
 import { BellRing, PhoneCall, Siren, SlidersHorizontal, X } from "lucide-react";
 import { toast } from "sonner";
-import { api, PATIENT_ID, USE_MOCKS } from "@/lib/api";
+import { api, USE_MOCKS } from "@/lib/api";
 import type { Medication } from "@/lib/types";
 import { cn } from "./ui";
 
 /** Presenter controls for the live demo. Collapsed by default so judges see the product, not the controls. */
-export function DemoBar({ meds, patientName }: { meds: Medication[]; patientName: string }) {
+export function DemoBar({ meds, patientId, patientName }: { meds: Medication[]; patientId: string; patientName: string }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const next = meds.find((m) => m.id === "med-metf") ?? meds[0];
@@ -33,14 +33,14 @@ export function DemoBar({ meds, patientName }: { meds: Medication[]; patientName
             icon={<PhoneCall className="size-4" />}
             label="Start check-in call"
             busy={busy === "dial"}
-            onClick={() => run("dial", () => api.dial(PATIENT_ID), `Calling ${patientName} on FaceTime`)}
+            onClick={() => run("dial", () => api.dial(patientId), `Calling ${patientName} on FaceTime`)}
           />
           {next ? (
             <DemoButton
               icon={<BellRing className="size-4" />}
               label="Send reminder"
               busy={busy === "remind"}
-              onClick={() => run("remind", () => api.remind(PATIENT_ID, next.id), `Reminder sent to ${patientName} by iMessage`)}
+              onClick={() => run("remind", () => api.remind(patientId, next.id), `Reminder sent to ${patientName} by iMessage`)}
             />
           ) : null}
           {USE_MOCKS ? (

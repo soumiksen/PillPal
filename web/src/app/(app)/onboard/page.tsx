@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Camera, Check, ImagePlus, Plus, ScanText, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, PATIENT_ID } from "@/lib/api";
+import { homeFor, rememberPatient, useRequireAccount } from "@/lib/account";
 import { LANGUAGES, languageName } from "@/lib/languages";
 import type { CreatePatientBody, FoodRule, RxFields } from "@/lib/types";
 import { Button, Field, Input, Panel, Select, cn } from "@/components/ui";
@@ -16,6 +17,8 @@ const STEPS = ["About them", "Their medicines", "Review and start"];
 
 export default function OnboardPage() {
   const router = useRouter();
+  const account = useRequireAccount();
+  const isDoctor = account.profile?.role === "doctor";
   const [step, setStep] = useState(0);
   const [p, setP] = useState<Draft>({
     name: "",
@@ -55,8 +58,9 @@ export default function OnboardPage() {
           m.pillPhoto,
         );
       }
+      rememberPatient(id || PATIENT_ID);
       toast.success(`${p.preferred_name || p.name} is set up. Pal will call at the first dose time.`);
-      router.push("/caregiver");
+      router.push(isDoctor ? `/doctor/${id}` : homeFor(account.profile?.role));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't save. Check the API is running.");
     } finally {

@@ -3,7 +3,11 @@ import { useState, useSyncExternalStore } from "react";
 import { PhoneCall, ShieldAlert, Video } from "lucide-react";
 import { toast } from "sonner";
 import { useLive } from "@/lib/useLive";
-import { api, PATIENT_ID } from "@/lib/api";
+import { api, PATIENT_ID, USE_MOCKS } from "@/lib/api";
+import { rememberPatient, useRememberedPatient, useRequireAccount } from "@/lib/account";
+import { usePatients } from "@/lib/usePatients";
+import { JoinByCode, ShareCode } from "@/components/care-team";
+import Link from "next/link";
 import { languageName } from "@/lib/languages";
 import { CallRoom } from "@/components/caregiver/call-room";
 import { AlertsPanel, CheckInPanel, PatientHeader, UrgentBanner } from "@/components/caregiver/panels";
@@ -19,19 +23,30 @@ const minuteNow = () => Math.floor(Date.now() / 60_000) * 60_000;
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
 export default function CaregiverPage() {
-  const d = useLive();
+  const account = useRequireAccount("caregiver");
+  const roster = usePatients();
+  const remembered = useRememberedPatient();
+  const [picked, setPicked] = useState<string | null>(null);
+  const mine = roster.patients.map((e) => e.patient);
+  const patientId = USE_MOCKS ? PATIENT_ID : (mine.find((p) => p.id === (picked ?? remembered))?.id ?? mine[0]?.id ?? "");
+  const d = useLive(patientId);
   const [calling, setCalling] = useState(false);
   const now = useSyncExternalStore(subscribeMinute, minuteNow, () => 0);
 
-  if (d.loading) return <p className="p-6 text-ink-soft">Loading this week&apos;s pill box…</p>;
+  if (account.status !== "ready" || roster.loading || (patientId && d.loading)) return <p className="p-6 text-ink-soft">Loading this week&apos;s pill box…</p>;
   if (!d.patient)
     return (
-      <div className="max-w-xl rounded-[var(--radius-panel)] bg-paper p-8">
-        <h1 className="font-display text-3xl">No patient yet</h1>
-        <p className="mt-2 text-ink-soft">{d.error ?? "Set up a patient to start their daily check-ins."}</p>
-        <a href="/onboard" className="mt-4 inline-flex h-12 items-center rounded-[14px] bg-teal px-5 font-bold text-white">
-          Set up a patient
-        </a>
+      <div className="flex max-w-3xl flex-col gap-4">
+        <div className="rounded-[var(--radius-panel)] bg-paper p-8">
+          <h1 className="font-display text-3xl font-semibold">Set up the person you care for</h1>
+          <p className="mt-2 max-w-[56ch] text-ink-soft">
+            {roster.error ?? d.error ?? "Add their details and snap a photo of each prescription label. Pal starts checking in at their next pill time."}
+          </p>
+          <Link href="/onboard" className="mt-5 inline-flex h-12 items-center rounded-[14px] bg-lime px-5 font-bold text-ink hover:bg-lime-deep">
+            Set up a patient
+          </Link>
+        </div>
+        <JoinByCode title="Already set up by family?" hint="Enter the 6-character code from their PillPal page to join their care team." onJoined={(id) => setPicked(id)} />
       </div>
     );
 
@@ -56,7 +71,7 @@ export default function CaregiverPage() {
   async function startCall() {
     setCalling(true);
     try {
-      await api.dial(PATIENT_ID);
+      await api.dial(patient.id);
       toast.success(`Pal is calling ${patient.preferred_name} on FaceTime`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't start the call.");
@@ -76,6 +91,25 @@ export default function CaregiverPage() {
         {d.error ? <p className="rounded-[14px] bg-caught-wash px-4 py-2 text-caught">{d.error}</p> : null}
         <Panel className="p-6">
           <PatientHeader patient={patient} onCall={startCall} calling={calling} live={Boolean(activeCall)} />
+          {mine.length > 1 ? (
+            <label className="mt-4 flex items-center gap-2 text-[15px] font-semibold text-ink-soft">
+              Caring for
+              <select
+                className="h-10 cursor-pointer rounded-[12px] border border-line bg-paper px-3 font-semibold text-ink"
+                value={patient.id}
+                onChange={(e) => {
+                  setPicked(e.target.value);
+                  rememberPatient(e.target.value);
+                }}
+              >
+                {mine.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </Panel>
         {urgent ? <UrgentBanner alert={urgent} patient={patient} onAck={ack} /> : null}
 
@@ -165,12 +199,14 @@ export default function CaregiverPage() {
           </p>
         </Panel>
 
+        {USE_MOCKS ? null : <ShareCode code={patient.share_code ?? null} patientName={patient.preferred_name} />}
+
         <Panel className="p-6">
           <h2 className="mb-3 font-display text-xl font-semibold">Reading the box</h2>
           <PillBoxLegend />
         </Panel>
       </aside>
-      <DemoBar meds={d.meds} patientName={patient.preferred_name} />
+      <DemoBar meds={d.meds} patientId={patient.id} patientName={patient.preferred_name} />
     </div>
   );
 }

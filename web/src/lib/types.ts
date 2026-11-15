@@ -41,7 +41,7 @@ export type {
  */
 type Filled<T, Keep extends keyof T = never> = { [K in Exclude<keyof T, Keep>]-?: NonNullable<T[K]> } & { [K in Keep]: T[K] };
 
-export type Patient = Filled<PatientRow, "consent_at" | "care_chat_id" | "address">;
+export type Patient = Filled<PatientRow, "consent_at" | "care_chat_id" | "address" | "share_code">;
 export type Medication = Filled<MedicationRow, "pills_left" | "refill_info" | "pill_description" | "reference_photo_url" | "confirmed_by">;
 export type DoseEvent = Filled<DoseEventRow, "confirmed_via" | "chert_message_id" | "evidence_jpeg_url">;
 export type Call = Filled<CallRow, "chert_call_id" | "room_name" | "ended_at" | "transcript" | "language">;
