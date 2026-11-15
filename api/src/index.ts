@@ -5,8 +5,11 @@ import type { OkResponse } from "@pillpal/shared";
 import { env } from "./env.js";
 import { notFound, onError, requestLogger } from "./lib/http.js";
 import { startEventStream } from "./chert/events.js";
+import { facetime } from "./chert/facetime.js";
+import { sharedMessaging } from "./chert/messaging.js";
+import { startSharedPoller } from "./chert/shared-poll.js";
 import { calls } from "./routes/calls.js";
-import { devChert, webhooks } from "./routes/chert.js";
+import { devChert, devTools, webhooks } from "./routes/chert.js";
 import { demo } from "./routes/demo.js";
 import { dial } from "./routes/dial.js";
 import { doses } from "./routes/doses.js";
@@ -45,13 +48,20 @@ app.route("/notify", notify);
 if (env.CHERT_MODE === "live") {
   app.route("/webhooks", webhooks);
 } else {
+  // mock + shared: simulate inbound events (Shared lines cannot report tapbacks).
   app.route("/dev/chert", devChert);
+  app.route("/dev", devTools);
 }
 
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {
-  console.log(`PillPal API listening on http://localhost:${info.port} (chert: ${env.CHERT_MODE})`);
+  console.log(
+    `PillPal API listening on http://localhost:${info.port} ` +
+      `(imessage: ${env.CHERT_MODE}, facetime: ${facetime.mode}, scheduler: ${env.SCHEDULER})`,
+  );
   if (env.CHERT_MODE === "live") startEventStream();
-  startScheduler();
+  const shared = sharedMessaging();
+  if (shared) startSharedPoller(shared);
+  if (env.SCHEDULER === "on") startScheduler();
 });
 
 export default app;

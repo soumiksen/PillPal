@@ -23,10 +23,31 @@ const EnvSchema = z.object({
   CHERT_PROJECT_ID: optional,
   CHERT_LINE_ID: optional,
   /**
-   * mock (default): no Chert request is ever made; sends go to an in-memory outbox and
-   * /dev/chert/* routes inject events. live: real HTTP + SSE + signed webhook.
+   * iMessage transport.
+   *  mock (default): no Chert request is ever made; sends go to an in-memory outbox and
+   *    /dev/chert/* routes inject events.
+   *  live: Messaging API (console.trychert.com) + SSE + signed webhook.
+   *  shared: Shared-line API (app.trychert.com/api/v1/shared-messages), replies polled every 5 s;
+   *    /dev/chert/* stays registered so tapbacks can be simulated.
    */
-  CHERT_MODE: z.enum(["mock", "live"]).default("mock"),
+  CHERT_MODE: z.enum(["mock", "live", "shared"]).default("mock"),
+  /** FaceTime calls. mock (default): no Chert/LiveKit request. live: LiveKit room + agent dispatch + POST /v1/calls. */
+  CHERT_FACETIME_MODE: z.enum(["mock", "live"]).default("mock"),
+  /** Override for the FaceTime Calls API base (default https://facetime.trychert.com/api). */
+  CHERT_FACETIME_BASE: z.string().url().optional(),
+  /** Override for the project API base used by shared-messages (default https://app.trychert.com/api/v1). */
+  CHERT_APP_BASE: z.string().url().optional(),
+  /** Reminder / missed-dose scheduler (node-cron, every minute, America/Chicago). */
+  SCHEDULER: z.enum(["on", "off"]).default("off"),
+  /** Pending reminder with no reply after this many minutes → FaceTime dose call (once). */
+  REMINDER_TIMEOUT_MIN: z.coerce.number().int().positive().default(2),
+  /** Pending dose older than this many minutes → missed. */
+  MISSED_AFTER_MIN: z.coerce.number().int().positive().default(60),
+  /** Pharmacy for low-pill messages (optional; lat/lng enable a location pin where supported). */
+  PHARMACY_NAME: optional,
+  PHARMACY_ADDRESS: optional,
+  PHARMACY_LAT: z.coerce.number().optional(),
+  PHARMACY_LNG: z.coerce.number().optional(),
   // Messaging API (console.trychert.com/api/v1). Optional in mock, required in live.
   CHERT_MSG_TOKEN: optional,
   CHERT_FROM: optional,
@@ -38,9 +59,18 @@ const EnvSchema = z.object({
   LIVEKIT_API_SECRET: optional,
   AGENT_NAME: z.string().default("pillpal-agent"),
 }).superRefine((e, ctx) => {
-  if (e.CHERT_MODE !== "live") return;
-  for (const name of ["CHERT_MSG_TOKEN", "CHERT_FROM", "CHERT_WEBHOOK_SECRET"] as const) {
-    if (!e[name]) ctx.addIssue({ code: "custom", path: [name], message: "required when CHERT_MODE=live" });
+  const need = (names: readonly (keyof typeof e)[], why: string) => {
+    for (const name of names) {
+      if (e[name] === undefined) ctx.addIssue({ code: "custom", path: [name], message: `required when ${why}` });
+    }
+  };
+  if (e.CHERT_MODE === "live") need(["CHERT_MSG_TOKEN", "CHERT_FROM", "CHERT_WEBHOOK_SECRET"], "CHERT_MODE=live");
+  if (e.CHERT_MODE === "shared") need(["CHERT_API_KEY", "CHERT_PROJECT_ID", "CHERT_LINE_ID"], "CHERT_MODE=shared");
+  if (e.CHERT_FACETIME_MODE === "live") {
+    need(
+      ["CHERT_API_KEY", "CHERT_PROJECT_ID", "CHERT_LINE_ID", "LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"],
+      "CHERT_FACETIME_MODE=live",
+    );
   }
 });
 

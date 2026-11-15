@@ -1,24 +1,45 @@
 /**
- * Chert iMessage client. One interface, two implementations chosen by CHERT_MODE:
+ * Chert iMessage client. One interface, three implementations chosen by CHERT_MODE:
  *  - live: real HTTP to https://console.trychert.com/api/v1 (see ./http.ts)
+ *  - shared: Shared-line API https://app.trychert.com/api/v1/shared-messages (see ./shared.ts);
+ *    text only — unsupported features degrade to a plain-text equivalent
  *  - mock: no network; logs "[chert-mock] <method> → patient|caregiver|…" and keeps an in-memory outbox.
- * Neither ever logs phone numbers, message bodies or tokens.
+ * None ever logs phone numbers, message bodies or tokens.
  */
 import { randomUUID } from "node:crypto";
 import { env } from "../env.js";
 import { chertFetch, chertJson } from "./http.js";
+import { recipientLabel } from "./labels.js";
+import { SharedChertMessaging } from "./shared.js";
 import type { MessageEffect, Place, ReactionKind } from "./types.js";
+
+export { recipientLabel } from "./labels.js";
 
 export type Attachment = { data: Buffer; mime: string };
 
+/** What the current transport can do natively (callers pick a fallback when false). */
+export type MessagingSupport = {
+  reactions: boolean;
+  voiceNotes: boolean;
+  groupChats: boolean;
+  locations: boolean;
+  effects: boolean;
+  /** Inbound tapbacks arrive as reaction.added events. */
+  inboundReactions: boolean;
+};
+
 export interface ChertMessaging {
-  readonly mode: "mock" | "live";
+  readonly mode: "mock" | "live" | "shared";
+  readonly supports: MessagingSupport;
   /** 1:1 iMessage (a blank line splits bubbles). → Chert message id. */
   sendText(phone: string, body: string, effect?: MessageEffect): Promise<string>;
   /** Standard tapback on any message id (ours or inbound). */
   react(messageId: string, kind: ReactionKind): Promise<void>;
-  /** Native voice note from a PCM WAV (0.5–300 s): stage, then send. → message id. */
-  sendVoiceNote(phone: string, wav: Buffer): Promise<string>;
+  /**
+   * Native voice note from a PCM WAV (0.5–300 s): stage, then send. → message id.
+   * `text` is what the note says; transports without voice notes send it as a text instead.
+   */
+  sendVoiceNote(phone: string, wav: Buffer, text: string): Promise<string>;
   /** Group chat with 2–31 recipients; first message must be text-only, no URLs. → chat id. */
   createCareChat(recipients: string[], firstText: string): Promise<string>;
   /** Follow-up message in an existing chat. → message id. */
@@ -29,22 +50,20 @@ export interface ChertMessaging {
   downloadAttachment(attachmentId: string): Promise<Attachment>;
 }
 
-// ---------------------------------------------------------------- recipient labels (logs only)
-
-const digits = (s: string) => s.replace(/\D/g, "").slice(-10);
-
-/** "patient" | "caregiver" | "recipient" — the only thing logs ever say about a phone. */
-export function recipientLabel(phone: string): "patient" | "caregiver" | "recipient" {
-  const d = digits(phone);
-  if (d && env.PATIENT_PHONE && d === digits(env.PATIENT_PHONE)) return "patient";
-  if (d && env.CAREGIVER_PHONE && d === digits(env.CAREGIVER_PHONE)) return "caregiver";
-  return "recipient";
-}
-
 // ---------------------------------------------------------------- live
+
+const FULL_SUPPORT: MessagingSupport = {
+  reactions: true,
+  voiceNotes: true,
+  groupChats: true,
+  locations: true,
+  effects: true,
+  inboundReactions: true,
+};
 
 class LiveChertMessaging implements ChertMessaging {
   readonly mode = "live" as const;
+  readonly supports = FULL_SUPPORT;
 
   async sendText(phone: string, body: string, effect?: MessageEffect): Promise<string> {
     const r = await chertJson<{ message_id: string }>("POST", "/send", {
@@ -60,7 +79,7 @@ class LiveChertMessaging implements ChertMessaging {
     await chertJson("POST", `/messages/${encodeURIComponent(messageId)}/react`, { reaction: kind });
   }
 
-  async sendVoiceNote(phone: string, wav: Buffer): Promise<string> {
+  async sendVoiceNote(phone: string, wav: Buffer, _text: string): Promise<string> {
     const staged = await chertJson<{ voice_note_id: string; phone_line_id: string }>(
       "POST",
       "/voice-notes",
@@ -133,6 +152,7 @@ const OUTBOX_MAX = 200;
 
 class MockChertMessaging implements ChertMessaging {
   readonly mode = "mock" as const;
+  readonly supports = FULL_SUPPORT;
   readonly outbox: OutboxEntry[] = [];
 
   private record(kind: OutboxKind, method: string, to: string, extra?: { effect?: string }): string {
@@ -151,7 +171,7 @@ class MockChertMessaging implements ChertMessaging {
     this.record("reaction", "react", "message");
   }
 
-  async sendVoiceNote(phone: string, _wav: Buffer): Promise<string> {
+  async sendVoiceNote(phone: string, _wav: Buffer, _text: string): Promise<string> {
     return this.record("voice_note", "sendVoiceNote", recipientLabel(phone));
   }
 
@@ -181,8 +201,12 @@ class MockChertMessaging implements ChertMessaging {
 // ---------------------------------------------------------------- selection
 
 const mockInstance = env.CHERT_MODE === "mock" ? new MockChertMessaging() : undefined;
+const sharedInstance = env.CHERT_MODE === "shared" ? new SharedChertMessaging() : undefined;
 
-export const messaging: ChertMessaging = mockInstance ?? new LiveChertMessaging();
+export const messaging: ChertMessaging = mockInstance ?? sharedInstance ?? new LiveChertMessaging();
+
+/** The shared-line client (undefined unless CHERT_MODE=shared). */
+export const sharedMessaging = (): SharedChertMessaging | undefined => sharedInstance;
 
 /** Mock outbox (undefined in live mode). */
 export function mockOutbox(): readonly OutboxEntry[] | undefined {

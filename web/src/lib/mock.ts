@@ -45,6 +45,7 @@ function seedRose(): State {
     caregiver_name: "Ana",
     caregiver_phone: "+1 (469) 555-0188",
     doctor_name: "Dr. Priya Patel",
+    share_code: "ROSE01",
     address: "Arlington, TX",
     consent_at: at("09:00", -10),
     care_chat_id: null,
@@ -401,7 +402,7 @@ const OTHER_PATIENTS: OtherPatient[] = [
   {
     patient: {
       id: "harold-0002", name: "Harold Kim", preferred_name: "Harold", phone: "+1 (817) 555-0167", language: "ko-KR",
-      caregiver_name: "Grace", caregiver_phone: "+1 (817) 555-0199", doctor_name: "Dr. Priya Patel",
+      caregiver_name: "Grace", caregiver_phone: "+1 (817) 555-0199", doctor_name: "Dr. Priya Patel", share_code: "HAROLD",
     },
     meds: [
       { id: "med-h-amlo", drug: "Amlodipine", strength: "5 mg", times: ["08:00"], food_rule: "none", pill: "Small white octagon, imprint “AN 5”", left: 17 },
@@ -415,7 +416,7 @@ const OTHER_PATIENTS: OtherPatient[] = [
   {
     patient: {
       id: "maggie-0003", name: "Margaret O'Neill", preferred_name: "Maggie", phone: "+1 (682) 555-0123", language: "en-US",
-      caregiver_name: "Tom", caregiver_phone: "+1 (682) 555-0177", doctor_name: "Dr. Priya Patel",
+      caregiver_name: "Tom", caregiver_phone: "+1 (682) 555-0177", doctor_name: "Dr. Priya Patel", share_code: "MAGGIE",
     },
     meds: [
       { id: "med-m-warf", drug: "Warfarin", strength: "5 mg", times: ["17:00"], food_rule: "none", pill: "Peach round tablet, imprint “5”", left: 24 },
@@ -428,7 +429,7 @@ const OTHER_PATIENTS: OtherPatient[] = [
   {
     patient: {
       id: "bao-0004", name: "Bao Nguyen", preferred_name: "Bao", phone: "+1 (214) 555-0145", language: "vi-VN",
-      caregiver_name: "Linh", caregiver_phone: "+1 (214) 555-0181", doctor_name: "Dr. Priya Patel",
+      caregiver_name: "Linh", caregiver_phone: "+1 (214) 555-0181", doctor_name: "Dr. Priya Patel", share_code: "BAO001",
     },
     meds: [
       { id: "med-b-losa", drug: "Losartan", strength: "50 mg", times: ["08:00"], food_rule: "none", pill: "Green oval tablet, imprint “L 50”", left: 12 },
