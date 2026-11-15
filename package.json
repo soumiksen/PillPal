@@ -10,7 +10,8 @@
   "scripts": {
     "check": "npm run -ws --if-present typecheck && npm run -ws --if-present build",
     "build": "npm run -ws --if-present build",
-    "dev": "echo \"dev: TODO — will run web :3000, api :8787, agent together\" && npm run -w @pillpal/api dev"
+    "dev": "echo \"dev: TODO \u2014 will run web :3000, api :8787, agent together\" && npm run -w @pillpal/api dev",
+    "demo:up": "node scripts/demo-up.mjs"
   },
   "engines": {
     "node": ">=22"

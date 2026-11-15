@@ -44,6 +44,24 @@ export const webCalls: WebCallService | null =
       )
     : null;
 
+/**
+ * After a restart no web call is live (the line lives in memory and LiveKit drops empty rooms), so web-call rows
+ * still open are leftovers from a crash or Ctrl+C: close them so dashboards and the scheduler do not see them as live.
+ */
+export async function closeOrphanedWebCalls(): Promise<number> {
+  const r = must(
+    "close orphaned web calls",
+    await db
+      .from("calls")
+      .update({ ended_at: new Date().toISOString() })
+      .is("ended_at", null)
+      .is("chert_call_id", null)
+      .like("room_name", "pillpal-%")
+      .select("id"),
+  ) as { id: string }[];
+  return r.length;
+}
+
 export type LineInfo = { room_name: string; patient_id: string; kind: string; group: boolean } | null;
 
 export const callLine = {

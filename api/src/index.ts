@@ -8,7 +8,7 @@ import { startEventStream } from "./chert/events.js";
 import { facetime } from "./chert/facetime.js";
 import { sharedMessaging } from "./chert/messaging.js";
 import { startSharedPoller } from "./chert/shared-poll.js";
-import { webCalls } from "./calls/index.js";
+import { closeOrphanedWebCalls, webCalls } from "./calls/index.js";
 import { calls } from "./routes/calls.js";
 import { devChert, devTools, webhooks } from "./routes/chert.js";
 import { demo } from "./routes/demo.js";
@@ -64,6 +64,11 @@ serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   if (shared) startSharedPoller(shared);
   if (env.SCHEDULER === "on") startScheduler();
   // Listen for the demo patient's app replies from the start (channels for other patients open on first dial).
+  if (webCalls) {
+    closeOrphanedWebCalls()
+      .then((n) => n && console.log(`[webcall] closed ${n} call row(s) left open by a previous run`))
+      .catch((err: Error) => console.error(`[webcall] ${err.message}`));
+  }
   if (webCalls && env.PATIENT_ID) {
     webCalls.listen(env.PATIENT_ID).catch((err: Error) => console.error(`[signal] ${err.message}`));
   }
