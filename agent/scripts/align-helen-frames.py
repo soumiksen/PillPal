@@ -17,6 +17,8 @@ Pipeline per frame:
   2. SIFT features on the non-face area only (hair, crown, shoulders, clothing) -> RANSAC similarity,
      then ECC affine refinement on the same mask; keep whichever has the lower masked error
   3. Lab mean/std colour match of the warped frame's skin to the base skin
+  3b. texture transfer: replace the frame's fine skin detail (freckles, pores) with the base's, on skin
+     only (eyes, brows and mouth excluded) so texture doesn't flicker between frames
   4. composite inside the face mask (forehead->chin, ear->ear, earrings cut out) with a feathered alpha
      that is exactly 0 outside the mask, so hair/crown/earrings/clothing are the base pixels
 
@@ -54,6 +56,12 @@ EARRINGS = [(250, 322, 32, 76), (486, 322, 32, 76)]  # x, y, w, h — always kep
 FEATHER = 14                      # px ramp inside the mask edge
 EYE_BOX = (276, 196, 222, 90)     # x, y, w, h  both eyes + lids
 MOUTH_BOX = (320, 330, 134, 100)  # x, y, w, h  lips + jaw drop room
+TEX_SIGMA = 2.5                   # px; detail finer than this (freckles, pores) is "texture"
+TEX_CLIP = 6.0                    # Lab-L units; soft clip so base edges (smile lines, nostrils) don't transfer
+# Regions never textured (base coords, ellipse centre + axes): each eye with its brow, and the mouth with
+# room for the jaw drop. Feathered by TEX_FEATHER.
+TEX_EXCLUDE = [((333, 232), (58, 42)), ((445, 232), (58, 42)), ((387, 374), (70, 44))]
+TEX_FEATHER = 6.0
 CORNER = 0.10                     # corner size (fraction of side) searched for the Gemini sparkle
 
 
@@ -138,6 +146,43 @@ def lab_match(src: np.ndarray, ref: np.ndarray, m: np.ndarray) -> tuple[np.ndarr
     return out, {"lab_mean_shift": (mr - ms).round(2).tolist(), "lab_std_ratio": (sr / ss).round(3).tolist()}
 
 
+def texture_mask(hard: np.ndarray) -> np.ndarray:
+    """Float 0..1: skin inside the face mask, excluding eyes, brows and mouth."""
+    m = cv2.erode(hard, np.ones((9, 9), np.uint8))
+    for c, ax in TEX_EXCLUDE:
+        cv2.ellipse(m, c, ax, 0, 0, 360, 0, -1)
+    return cv2.GaussianBlur(m.astype(np.float32) / 255, (0, 0), TEX_FEATHER)
+
+
+def _detail(lab: np.ndarray) -> np.ndarray:
+    return lab - cv2.GaussianBlur(lab, (0, 0), TEX_SIGMA)
+
+
+def _soft(x: np.ndarray, t: float) -> np.ndarray:
+    return t * np.tanh(x / t)
+
+
+def texture_transfer(img: np.ndarray, base: np.ndarray, m: np.ndarray) -> np.ndarray:
+    """Swap the frame's fine skin texture for the base's. Low-amplitude detail (freckles, pores) is
+    replaced; high-amplitude detail (the frame's own creases, e.g. a frown) mostly survives because
+    both sides are soft-clipped before swapping. Chroma gets a scaled share so freckles keep their tint."""
+    a = cv2.cvtColor(img, cv2.COLOR_BGR2LAB).astype(np.float32)
+    b = cv2.cvtColor(base, cv2.COLOR_BGR2LAB).astype(np.float32)
+    da, db = _detail(a), _detail(b)
+    out = a.copy()
+    for ch, t in ((0, TEX_CLIP), (1, TEX_CLIP / 2), (2, TEX_CLIP / 2)):
+        out[..., ch] += m * (_soft(db[..., ch], t) - _soft(da[..., ch], t))
+    return cv2.cvtColor(np.clip(out + 0.5, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
+
+
+def texture_stats(img: np.ndarray, base: np.ndarray, m: np.ndarray) -> dict:
+    """Skin high-frequency energy vs base, and mean |HF(frame) - HF(base)| — the texture part of flicker."""
+    sel = m > 0.5
+    la = _detail(cv2.cvtColor(img, cv2.COLOR_BGR2LAB).astype(np.float32))[..., 0][sel]
+    lb = _detail(cv2.cvtColor(base, cv2.COLOR_BGR2LAB).astype(np.float32))[..., 0][sel]
+    return {"hf_energy_ratio": round(float(la.std() / lb.std()), 3), "hf_diff": round(float(np.abs(la - lb).mean()), 3)}
+
+
 def sparkle_score(warped: np.ndarray, base: np.ndarray, valid: np.ndarray) -> list[dict]:
     """Look for a small bright blob (Gemini's 4-point sparkle) in each corner of the aligned frame
     that is not in the base. Working on the difference cancels clothing/background texture."""
@@ -179,6 +224,7 @@ def main() -> None:
     skin = hard.copy()
     for x, y, bw, bh in (EYE_BOX, MOUTH_BOX):
         skin[y:y + bh, x:x + bw] = 0
+    tex = texture_mask(hard)
     seam = ((alpha > 0) & (alpha < 0.5)).astype(np.uint8)
     (OUT / "patches").mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(OUT / "neutral.png"), base)
@@ -217,6 +263,9 @@ def main() -> None:
 
         matched, cm = lab_match(warped, base, skin)
         r["color"] = cm
+        r["texture_before"] = texture_stats(matched, base, tex)
+        matched = texture_transfer(matched, base, tex)
+        r["texture_after"] = texture_stats(matched, base, tex)
         r["seam_mae"] = masked_mae(matched, base, seam)
         r["eye_change"] = masked_mae(matched, base, _box(h, w, EYE_BOX))
         r["mouth_change"] = masked_mae(matched, base, _box(h, w, MOUTH_BOX))
@@ -293,7 +342,7 @@ def _box(h: int, w: int, box) -> np.ndarray:
 
 def print_table(report: dict) -> None:
     print(f"{'frame':<13}{'status':<9}{'inl':>5}{'reproj':>8}{'scale':>7}{'outMAE':>8}{'out>30':>8}"
-          f"{'seam':>7}{'eyeΔ':>7}{'mouthΔ':>8}  watermark / notes")
+          f"{'seam':>7}{'eyeΔ':>7}{'mouthΔ':>8}{'hfR→':>7}{'hfR':>6}{'hfΔ→':>7}{'hfΔ':>6}  watermark / notes")
     for n, r in report["frames"].items():
         if r.get("status") != "ok":
             print(f"{n:<13}{r.get('status', '?'):<9}  dup={r.get('duplicate_of')}")
@@ -302,7 +351,9 @@ def print_table(report: dict) -> None:
                       for m in r["watermark"]) or "-"
         print(f"{n:<13}{'ok':<9}{r['inliers']:>5}{r['reproj_median_px']:>8.2f}{r['scale']:>7.3f}"
               f"{r['outside_mae']:>8.2f}{r['outside_frac_gt30']:>8.1%}{r['seam_mae']:>7.2f}"
-              f"{r['eye_change']:>7.2f}{r['mouth_change']:>8.2f}  {wm}"
+              f"{r['eye_change']:>7.2f}{r['mouth_change']:>8.2f}"
+              f"{r['texture_before']['hf_energy_ratio']:>7.2f}{r['texture_after']['hf_energy_ratio']:>6.2f}"
+              f"{r['texture_before']['hf_diff']:>7.2f}{r['texture_after']['hf_diff']:>6.2f}  {wm}"
               f"{'  dup=' + str(r['duplicate_of']) if r.get('duplicate_of') else ''}")
 
 

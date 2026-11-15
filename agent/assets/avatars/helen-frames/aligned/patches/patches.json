@@ -47,5 +47,12 @@
     "w": 222,
     "h": 90,
     "source": "blink"
+  },
+  "eyes_blink_half": {
+    "x": 276,
+    "y": 196,
+    "w": 222,
+    "h": 90,
+    "source": "blink_half"
   }
 }
