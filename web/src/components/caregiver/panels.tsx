@@ -1,6 +1,6 @@
 "use client";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Check, Eye, Phone, PhoneCall, Smile, Frown, Meh, Laugh, Annoyed, Languages, Video } from "lucide-react";
+import { Check, Eye, Phone, PhoneCall, Smile, Frown, Meh, Laugh, Annoyed, Languages, Pencil, Video } from "lucide-react";
 import type { Alert, CheckIn, Patient } from "@/lib/types";
 import { languageName, languageNative } from "@/lib/languages";
 import { AlertLevelChip, alertTone } from "../status";
@@ -15,7 +15,7 @@ const ago = (iso: string) => {
   return h < 24 ? `${h} h ago` : new Date(iso).toLocaleDateString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
 };
 
-export function PatientHeader({ patient, onCall, calling, live }: { patient: Patient; onCall: () => void; calling: boolean; live: boolean }) {
+export function PatientHeader({ patient, onCall, calling, live, onEdit }: { patient: Patient; onCall: () => void; calling: boolean; live: boolean; onEdit?: () => void }) {
   const initials = patient.name.split(" ").map((p) => p[0]).slice(0, 2).join("");
   return (
     <div className="flex flex-wrap items-center justify-between gap-5">
@@ -39,6 +39,11 @@ export function PatientHeader({ patient, onCall, calling, live }: { patient: Pat
         </div>
       </div>
       <div className="flex flex-wrap gap-2.5">
+        {onEdit ? (
+          <Button variant="quiet" onClick={onEdit}>
+            <Pencil className="size-4.5" aria-hidden /> Edit details
+          </Button>
+        ) : null}
         <a
           href={ftHref(patient.phone)}
           className="inline-flex h-11 items-center gap-2 rounded-[12px] border border-line bg-paper px-4 font-semibold hover:border-teal hover:text-teal-deep"
