@@ -10,6 +10,7 @@
 import { createServer } from "node:http";
 import { AccessToken, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
 import { PatientContext } from "@pillpal/shared";
+import { AVATARS, findAvatar } from "../src/avatars/catalog.js";
 
 const PORT = Number(process.env.LOCAL_PORT ?? 8788);
 const KEY = process.env.LIVEKIT_API_KEY ?? "devkey";
@@ -43,25 +44,31 @@ const context = PatientContext.parse({
 
 const PAGE = `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Pal local test</title>
-<style>body{font:18px system-ui;margin:2rem auto;max-width:640px;padding:0 1rem}video{width:100%;border-radius:12px;background:#000}
+<style>body{font:18px system-ui;margin:2rem auto;max-width:640px;padding:0 1rem}video{width:100%;max-height:65vh;object-fit:contain;border-radius:12px;background:#000}
 button{font:inherit;padding:.6rem 1.2rem;margin:.5rem .5rem .5rem 0}#log{white-space:pre-wrap;font:14px monospace;color:#555}</style>
 <h1>Talk to Pal (localhost)</h1>
-<video id=me autoplay muted playsinline></video>
+<p>Local test · fictional patient · simulated caregiver alerts · no FaceTime calls</p>
+<video id=pal autoplay playsinline aria-label="Pal avatar"></video>
+<video id=me autoplay muted playsinline style="width:140px" aria-label="Your camera"></video>
+<p><label>Companion <select id=avatar><option value="">Familiar face (automatic)</option>${AVATARS.map(a => `<option value="${a.id}">${a.name}</option>`).join("")}</select></label></p>
 <p><button id=go>Start call</button><button id=stop disabled>Hang up</button></p><div id=log></div>
 <script src="https://unpkg.com/livekit-client@2.9.0/dist/livekit-client.umd.js"></script>
 <script>
+const go=document.getElementById('go'),stopButton=document.getElementById('stop'),pal=document.getElementById('pal'),me=document.getElementById('me'),avatar=document.getElementById('avatar');
 const log=m=>document.getElementById('log').textContent+=m+'\\n';let room;
-go.onclick=async()=>{go.disabled=true;
- const {token,url}=await (await fetch('/token')).json();
+go.onclick=async()=>{go.disabled=true;try{
+ const {token,url}=await (await fetch('/token?avatar_id='+encodeURIComponent(avatar.value))).json();
  room=new LivekitClient.Room();
- room.on('trackSubscribed',(t)=>{if(t.kind==='audio'){document.body.appendChild(t.attach());log('Pal joined (audio)')}});
+ room.on('trackSubscribed',(t)=>{if(t.kind==='audio'){const el=t.attach();el.dataset.palAudio='true';document.body.appendChild(el);log('Pal joined (audio)')}else if(t.kind==='video'){t.attach(pal);pal.muted=true;log('Pal joined (video)')}});
+ room.on('trackUnsubscribed',t=>t.detach().forEach(el=>{if(el.tagName==='AUDIO')el.remove()}));
  await room.connect(url,token);
  const tracks=await LivekitClient.createLocalTracks({audio:true,video:{resolution:{width:640,height:480}}});
  for(const t of tracks){ if(t.kind==='video'){me.srcObject=new MediaStream([t.mediaStreamTrack]);
    await room.localParticipant.publishTrack(t,{name:'facetime-remote-video',source:LivekitClient.Track.Source.Camera});}
   else await room.localParticipant.publishTrack(t,{name:'facetime-remote-audio'});}
- log('Connected. Say hello to Pal.');stop.disabled=false;};
-stop.onclick=()=>{room&&room.disconnect();go.disabled=false;stop.disabled=true;log('Hung up.')};
+ log('Connected. Say hello to Pal.');stopButton.disabled=false;
+ }catch{room&&room.disconnect();go.disabled=false;stopButton.disabled=true;log('Could not start the call. Check microphone/camera permissions and the terminal.')}};
+stopButton.onclick=()=>{room&&room.disconnect();document.querySelectorAll('[data-pal-audio]').forEach(el=>el.remove());pal.srcObject=null;me.srcObject=null;go.disabled=false;stopButton.disabled=true;log('Hung up.')};
 </script>`;
 
 createServer(async (req, res) => {
@@ -75,11 +82,12 @@ createServer(async (req, res) => {
     return void res.end(PAGE);
   }
   if (req.method === "GET" && url.pathname === "/token") {
+    const avatar = findAvatar(url.searchParams.get("avatar_id"));
     const room = `local-${Date.now()}`;
-    const at = new AccessToken(KEY, SECRET, { identity: "chert-bridge-local", ttl: 3600 });
+    const at = new AccessToken(KEY, SECRET, { identity: "local-avatar-tester", ttl: 3600 });
     at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
     at.roomConfig = new RoomConfiguration({
-      agents: [new RoomAgentDispatch({ agentName: AGENT, metadata: JSON.stringify({ patient_id: PATIENT, kind: "check_in" }) })],
+      agents: [new RoomAgentDispatch({ agentName: AGENT, metadata: JSON.stringify({ patient_id: PATIENT, kind: "check_in", ...(avatar ? { avatar_id: avatar.id } : {}) }) })],
     });
     return json({ token: await at.toJwt(), url: WS });
   }
@@ -94,4 +102,4 @@ createServer(async (req, res) => {
     return json({ id: uuid(6) });
   }
   json({ error: "not found" }, 404);
-}).listen(PORT, () => console.log(`Pal test page + mock API → http://localhost:${PORT}`));
+}).listen(PORT, "127.0.0.1", () => console.log(`Pal test page + mock API → http://localhost:${PORT}`));

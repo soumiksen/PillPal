@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "avatars:preview": "node --import tsx dev/avatars.ts",
+    "avatars:export": "node --import tsx dev/export-avatars.ts",
+    "avatars:call": "node --env-file-if-exists=../.env.avatar-test --import tsx dev/avatar-call.ts",
+    "avatars:test": "node --import tsx --test dev/avatars.test.ts dev/avatar-call-config.test.ts",
     "dev": "tsx src/agent.ts dev",
     "start": "node dist/agent.js start",
     "typecheck": "tsc -b",
@@ -15,6 +19,7 @@
   "dependencies": {
     "@livekit/agents": "^1.10.0",
     "@livekit/agents-plugin-google": "^1.10.0",
+    "@livekit/agents-plugin-lemonslice": "^1.10.0",
     "@livekit/rtc-node": "^1.2.2",
     "@pillpal/ai": "*",
     "@pillpal/shared": "*",

@@ -12,12 +12,20 @@ import { api } from "./api.js";
 import { FrameGrabber } from "./frames.js";
 import { buildInstructions } from "./prompt.js";
 import { buildTools, type CallState } from "./tools.js";
+import { startAvatar } from "./avatars/start.js";
 
 const GEMINI_LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025";
 
-function parseMeta(raw: string | undefined): { patient_id?: string; kind?: string } {
+function parseMeta(raw: string | undefined): { patient_id?: string; kind?: string; avatar_id?: unknown } {
   try {
-    return raw ? (JSON.parse(raw) as { patient_id?: string; kind?: string }) : {};
+    const value: unknown = raw ? JSON.parse(raw) : {};
+    if (!value || typeof value !== "object") return {};
+    const meta = value as Record<string, unknown>;
+    return {
+      patient_id: typeof meta.patient_id === "string" ? meta.patient_id : undefined,
+      kind: typeof meta.kind === "string" ? meta.kind : undefined,
+      avatar_id: meta.avatar_id,
+    };
   } catch {
     return {};
   }
@@ -147,6 +155,11 @@ export default defineAgent({
       await state.finish(); // caller hung up without end_call
     });
 
+    // Hosted avatars route Gemini audio themselves; start them before RoomIO creates
+    // a voice track. The illustrated fallback publishes only video on this agent.
+    const avatar = await startAvatar(session, ctx.room, patientId, meta.avatar_id);
+    ctx.addShutdownCallback(async () => avatar.close());
+
     // Wait for the caller (Chert bridge participant) before greeting.
     await session.start({
       agent,
@@ -174,5 +187,9 @@ export default defineAgent({
 
 // Only start the worker CLI when executed directly (not when imported by tests).
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url), agentName: process.env.AGENT_NAME ?? "pillpal-agent" }));
+  cli.runApp(new ServerOptions({
+    agent: fileURLToPath(import.meta.url),
+    agentName: process.env.AGENT_NAME ?? "pillpal-agent",
+    port: process.env.AGENT_PORT ? Number(process.env.AGENT_PORT) : undefined,
+  }));
 }

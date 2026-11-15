@@ -3,12 +3,15 @@
  * Keeps only the newest frame + timestamp; grabFrame() → 512 px JPEG base64, or "camera_off"
  * when there is no fresh frame (older than 1.5 s) or the track is muted/unsubscribed.
  */
-import { RemoteTrackPublication, RoomEvent, TrackKind, VideoBufferType, VideoStream, type Room, type VideoFrame } from "@livekit/rtc-node";
+import { ParticipantKind, RoomEvent, TrackKind, VideoBufferType, VideoStream, type Room, type VideoFrame } from "@livekit/rtc-node";
 import sharp from "sharp";
 
 export const VIDEO_TRACK_NAME = "facetime-remote-video";
 export const MAX_FRAME_AGE_MS = 1500;
 export const FRAME_PX = 512;
+
+export const isCallerVideo = (name: string | undefined, kind?: ParticipantKind): boolean =>
+  kind !== ParticipantKind.AGENT && (name === VIDEO_TRACK_NAME || name === "" || name === undefined);
 
 export type Grab = { ok: true; jpegB64: string } | { ok: false; reason: "camera_off" };
 
@@ -20,25 +23,20 @@ export class FrameGrabber {
 
   /** Register handlers BEFORE room.connect so an already-published track is not missed. */
   attach(room: Room): void {
-    room.on(RoomEvent.TrackSubscribed, (track, pub) => {
-      if (track.kind !== TrackKind.KIND_VIDEO || !this.isCallerVideo(pub)) return;
+    room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
+      if (track.kind !== TrackKind.KIND_VIDEO || !isCallerVideo(pub.name, participant.kind)) return;
       this.muted = Boolean(pub.muted);
       void this.consume(new VideoStream(track));
     });
-    room.on(RoomEvent.TrackUnsubscribed, (track) => {
-      if (track.kind === TrackKind.KIND_VIDEO) this.reset();
+    room.on(RoomEvent.TrackUnsubscribed, (track, pub, participant) => {
+      if (track.kind === TrackKind.KIND_VIDEO && isCallerVideo(pub.name, participant.kind)) this.reset();
     });
-    room.on(RoomEvent.TrackMuted, (pub) => {
-      if (pub.kind === TrackKind.KIND_VIDEO) this.muted = true;
+    room.on(RoomEvent.TrackMuted, (pub, participant) => {
+      if (pub.kind === TrackKind.KIND_VIDEO && isCallerVideo(pub.name, participant.kind)) this.muted = true;
     });
-    room.on(RoomEvent.TrackUnmuted, (pub) => {
-      if (pub.kind === TrackKind.KIND_VIDEO) this.muted = false;
+    room.on(RoomEvent.TrackUnmuted, (pub, participant) => {
+      if (pub.kind === TrackKind.KIND_VIDEO && isCallerVideo(pub.name, participant.kind)) this.muted = false;
     });
-  }
-
-  private isCallerVideo(pub: RemoteTrackPublication): boolean {
-    // Only the bridge's remote-video track; ignore Pal's own face or other video.
-    return pub.name === VIDEO_TRACK_NAME || pub.name === "" || pub.name === undefined;
   }
 
   private reset() {
