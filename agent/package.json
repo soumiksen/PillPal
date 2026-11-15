@@ -10,7 +10,7 @@
     "build": "tsc -b",
     "test": "node --import tsx --test src/*.test.ts",
     "dev:agent": "LIVEKIT_URL=ws://localhost:7880 LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=secret API_URL=http://localhost:8788 AGENT_NAME=pillpal-agent PATIENT_ID=00000000-0000-4000-8000-000000000001 node --env-file-if-exists=../.env --import tsx src/agent.ts dev --log-level info",
-    "dev:local": "node --env-file-if-exists=../.env --import tsx dev/local.ts"
+    "dev:local": "LIVEKIT_URL=ws://localhost:7880 LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=secret node --env-file-if-exists=../.env --import tsx dev/local.ts"
   },
   "dependencies": {
     "@livekit/agents": "^1.10.0",

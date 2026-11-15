@@ -6,6 +6,7 @@
  */
 import { AutoSubscribe, cli, defineAgent, ServerOptions, voice, type JobContext } from "@livekit/agents";
 import * as google from "@livekit/agents-plugin-google";
+import { RoomEvent, TrackKind, type RemoteParticipant, type Room } from "@livekit/rtc-node";
 import { fileURLToPath } from "node:url";
 import { api } from "./api.js";
 import { FrameGrabber } from "./frames.js";
@@ -22,8 +23,28 @@ function parseMeta(raw: string | undefined): { patient_id?: string; kind?: strin
   }
 }
 
+/** Resolve once the participant's audio track is subscribed, or after timeoutMs (never blocks the call). */
+function waitForCallerAudio(room: Room, p: RemoteParticipant, timeoutMs: number): Promise<void> {
+  const hasAudio = () =>
+    [...p.trackPublications.values()].some((t) => t.kind === TrackKind.KIND_AUDIO && t.subscribed);
+  if (hasAudio()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      room.off(RoomEvent.TrackSubscribed, onSub);
+      resolve();
+    };
+    const onSub = (_t: unknown, _pub: unknown, who: RemoteParticipant) => {
+      if (who.identity === p.identity && hasAudio()) done();
+    };
+    const timer = setTimeout(done, timeoutMs);
+    room.on(RoomEvent.TrackSubscribed, onSub);
+  });
+}
+
 export default defineAgent({
   entry: async (ctx: JobContext) => {
+    const startedAt = Date.now();
     const meta = parseMeta(ctx.job.metadata);
     const patientId = meta.patient_id ?? process.env.PATIENT_ID;
     if (!patientId) throw new Error("No patient_id in job metadata and PATIENT_ID is unset");
@@ -104,7 +125,12 @@ export default defineAgent({
       // Video frames go to Claude via the FrameGrabber, not to Gemini Live (less load, fewer session errors).
       inputOptions: { videoEnabled: false },
     });
-    await ctx.waitForParticipant();
+    const caller = await ctx.waitForParticipant();
+    // The Chert bridge joins before the FaceTime media is live. Greet only once the caller's audio is
+    // subscribed (plus a beat), or the greeting plays before they can hear it.
+    await waitForCallerAudio(ctx.room, caller, 8000);
+    await new Promise((r) => setTimeout(r, Number(process.env.GREETING_DELAY_MS ?? 2500)));
+    console.log(`[pal] greeting now (+${Date.now() - startedAt} ms since job start)`);
     session.generateReply({
       instructions: `Greet ${context.patient.preferred_name ?? context.patient.name ?? "the patient"} warmly by name and ask one friendly question.`,
     });
