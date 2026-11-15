@@ -19,20 +19,25 @@ export interface LiveData {
   calls: Call[];
   callFeed: CallEvent[];
   history: DayHistory[];
+  /** Every dose event from 6 days ago through today (today's are the same rows as `doses`). */
+  week: DoseEvent[];
   loading: boolean;
   error: string | null;
 }
 
 const empty: LiveData = {
-  patient: null, meds: [], doses: [], alerts: [], checkins: [], calls: [], callFeed: [], history: [], loading: true, error: null,
+  patient: null, meds: [], doses: [], alerts: [], checkins: [], calls: [], callFeed: [], history: [], week: [], loading: true, error: null,
 };
 
 const serverSnapshot = null;
-function useMockLive(): LiveData {
+function useMockLive(patientId: string): LiveData {
   // The mock store is seeded from the clock, so it only exists in the browser.
-  const s = useSyncExternalStore(mock.subscribe, mock.getState, () => serverSnapshot);
-  if (!s) return empty;
-  return { ...s, loading: false, error: null };
+  const getSnapshot = useCallback(() => mock.getStateFor(patientId) ?? null, [patientId]);
+  const s = useSyncExternalStore(mock.subscribe, getSnapshot, () => serverSnapshot);
+  const isClient = useSyncExternalStore(mock.subscribe, () => true, () => false);
+  if (!isClient) return empty;
+  if (!s) return { ...empty, loading: false, error: "We couldn't find that patient." };
+  return { ...s, week: [...s.pastWeek, ...s.doses], loading: false, error: null };
 }
 
 function useSupabaseLive(patientId: string): LiveData {
@@ -54,7 +59,7 @@ function useSupabaseLive(patientId: string): LiveData {
       supabase.from("alerts").select("*").eq("patient_id", patientId).order("created_at", { ascending: false }).limit(10),
       supabase.from("check_ins").select("*").eq("patient_id", patientId).order("created_at", { ascending: false }).limit(5),
       supabase.from("calls").select("*").eq("patient_id", patientId).order("started_at", { ascending: false }).limit(5),
-      supabase.from("dose_events").select("status,scheduled_at").eq("patient_id", patientId).gte("scheduled_at", weekAgo.toISOString()),
+      supabase.from("dose_events").select("*").eq("patient_id", patientId).gte("scheduled_at", weekAgo.toISOString()).order("scheduled_at"),
     ]);
     const err = [p, m, d, a, c, k, w].find((r) => r.error)?.error?.message ?? null;
     const byDay = new Map<string, { taken: number; total: number }>();
@@ -63,7 +68,8 @@ function useSupabaseLive(patientId: string): LiveData {
       day.setDate(day.getDate() + i);
       byDay.set(day.toDateString(), { taken: 0, total: 0 });
     }
-    for (const row of (w.data ?? []) as Pick<DoseEventRow, "status" | "scheduled_at">[]) {
+    const week = ((w.data ?? []) as DoseEventRow[]).map(toDose);
+    for (const row of week) {
       if (!row.scheduled_at) continue;
       const key = new Date(row.scheduled_at).toDateString();
       const bucket = byDay.get(key);
@@ -87,6 +93,7 @@ function useSupabaseLive(patientId: string): LiveData {
       calls: ((k.data ?? []) as CallRow[]).map(toCall).reverse(),
       callFeed: [],
       history,
+      week,
       loading: false,
       error: err,
     });
@@ -113,9 +120,9 @@ function useSupabaseLive(patientId: string): LiveData {
   return data;
 }
 
-export function useLive(): LiveData {
+export function useLive(patientId: string = PATIENT_ID): LiveData {
   // USE_MOCKS is a build-time constant, so the hook order never changes at runtime.
   /* eslint-disable react-hooks/rules-of-hooks */
-  return USE_MOCKS ? useMockLive() : useSupabaseLive(PATIENT_ID);
+  return USE_MOCKS ? useMockLive(patientId) : useSupabaseLive(patientId);
   /* eslint-enable react-hooks/rules-of-hooks */
 }
