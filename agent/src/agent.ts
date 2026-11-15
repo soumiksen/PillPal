@@ -23,6 +23,35 @@ function parseMeta(raw: string | undefined): { patient_id?: string; kind?: strin
   }
 }
 
+const bridgeReady = (metadata: string | undefined): boolean => {
+  try {
+    return Boolean(metadata && (JSON.parse(metadata) as { chert_bridge_ready?: unknown }).chert_bridge_ready);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Under `chert dev`, the room metadata becomes {"chert_bridge_ready":true,...} once FaceTime media is live.
+ * Chert's rule: greet once on that signal (within 10 s, or the call ends), never merely because the caller joined.
+ * Resolves true on the signal, false after timeoutMs.
+ */
+function waitForBridgeReady(room: Room, timeoutMs: number): Promise<boolean> {
+  if (bridgeReady(room.metadata)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const finish = (ok: boolean) => {
+      clearTimeout(timer);
+      room.off(RoomEvent.RoomMetadataChanged, onMeta);
+      resolve(ok);
+    };
+    const onMeta = (m: string) => {
+      if (bridgeReady(m)) finish(true);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    room.on(RoomEvent.RoomMetadataChanged, onMeta);
+  });
+}
+
 /** Resolve once the participant's audio track is subscribed, or after timeoutMs (never blocks the call). */
 function waitForCallerAudio(room: Room, p: RemoteParticipant, timeoutMs: number): Promise<void> {
   const hasAudio = () =>
@@ -126,11 +155,17 @@ export default defineAgent({
       inputOptions: { videoEnabled: false },
     });
     const caller = await ctx.waitForParticipant();
-    // The Chert bridge joins before the FaceTime media is live. Greet only once the caller's audio is
-    // subscribed (plus a beat), or the greeting plays before they can hear it.
-    await waitForCallerAudio(ctx.room, caller, 8000);
-    await new Promise((r) => setTimeout(r, Number(process.env.GREETING_DELAY_MS ?? 2500)));
-    console.log(`[pal] greeting now (+${Date.now() - startedAt} ms since job start)`);
+    // Under Chert, greet on the bridge_ready room signal (media is live). Anywhere else (local test page),
+    // or if the signal never comes, fall back to: caller audio subscribed + a short beat.
+    const underChert = caller.identity.startsWith("chert-bridge-");
+    let how = "fallback";
+    if (underChert && (await waitForBridgeReady(ctx.room, 9000))) {
+      how = "bridge_ready";
+    } else {
+      await waitForCallerAudio(ctx.room, caller, 8000);
+      await new Promise((r) => setTimeout(r, Number(process.env.GREETING_DELAY_MS ?? 2500)));
+    }
+    console.log(`[pal] greeting via ${how} (+${Date.now() - startedAt} ms since job start)`);
     session.generateReply({
       instructions: `Greet ${context.patient.preferred_name ?? context.patient.name ?? "the patient"} warmly by name and ask one friendly question.`,
     });
