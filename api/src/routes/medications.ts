@@ -7,10 +7,11 @@ import {
 } from "@pillpal/shared";
 import type { z } from "zod";
 import { db } from "../db.js";
-import { getMedication, getPatient, must, mustOne } from "../lib/data.js";
+import { getMedication, getPatient, must, mustOne, notFound } from "../lib/data.js";
 import { jsonBody, uuidParam, validate } from "../lib/http.js";
 import { uploadPillPhoto } from "../lib/storage.js";
 import { fileToUpload, isMultipart, multipartBody } from "../lib/upload.js";
+import { assertCareTeam, requireUser } from "../lib/auth.js";
 
 export const medications = new Hono();
 
@@ -65,10 +66,11 @@ function safeJson(s: string): unknown {
 }
 
 /** Web: confirmed Rx fields (+ optional pill photo → Storage + ai.describePill). */
-medications.post("/", async (c) => {
+medications.post("/", requireUser, async (c) => {
   const { body, photo } = await readMedication(c, CreateMedicationBody);
   const { pill_photo_b64, ...fields } = body;
   await getPatient(fields.patient_id);
+  await assertCareTeam(c, fields.patient_id);
   const p = photo ?? (pill_photo_b64 ? { b64: pill_photo_b64 } : undefined);
   const extra = p ? await processPhoto(fields.patient_id, p) : {};
   const row = mustOne(
@@ -78,11 +80,13 @@ medications.post("/", async (c) => {
   return c.json({ id: row.id } satisfies IdResponse, 201);
 });
 
-medications.patch("/:id", async (c) => {
+medications.patch("/:id", requireUser, async (c) => {
   const id = uuidParam(c, "id");
+  const med = await getMedication(id);
+  if (!med.patient_id) throw notFound("medication");
+  await assertCareTeam(c, med.patient_id);
   const { body, photo } = await readMedication(c, UpdateMedicationBody);
   const { pill_photo_b64, ...fields } = body;
-  const med = await getMedication(id);
   const p = photo ?? (pill_photo_b64 ? { b64: pill_photo_b64 } : undefined);
   const extra = p && med.patient_id ? await processPhoto(med.patient_id, p) : {};
   const patch = { ...fields, ...extra };

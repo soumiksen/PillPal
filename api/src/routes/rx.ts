@@ -3,11 +3,12 @@ import * as ai from "@pillpal/ai";
 import { RxParseResponse } from "@pillpal/shared";
 import { ValidationError } from "../lib/http.js";
 import { fileToUpload, multipartBody } from "../lib/upload.js";
+import { requireUser } from "../lib/auth.js";
 
 export const rx = new Hono();
 
 /** Web: multipart prescription-label photo (field "image"; "photo" also accepted) → RxFields. */
-rx.post("/parse", async (c) => {
+rx.post("/parse", requireUser, async (c) => {
   const body = await multipartBody(c);
   const file = body.image ?? body.photo;
   if (!(file instanceof File) || file.size === 0) {

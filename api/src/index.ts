@@ -18,6 +18,7 @@ import { patients } from "./routes/patients.js";
 import { reports } from "./routes/reports.js";
 import { rx } from "./routes/rx.js";
 import { symptoms } from "./routes/symptoms.js";
+import { startScheduler } from "./scheduler.js";
 
 const app = new Hono();
 
@@ -50,6 +51,7 @@ if (env.CHERT_MODE === "live") {
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   console.log(`PillPal API listening on http://localhost:${info.port} (chert: ${env.CHERT_MODE})`);
   if (env.CHERT_MODE === "live") startEventStream();
+  startScheduler();
 });
 
 export default app;

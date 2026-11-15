@@ -45,6 +45,8 @@ export const PatientRow = z.object({
   address: z.string().nullable(),
   consent_at: Timestamp.nullable(),
   care_chat_id: z.string().nullable(),
+  /** Short code a caregiver shares so a doctor can join the care team (supabase/002_accounts.sql). */
+  share_code: z.string().nullable().optional(),
   created_at: Timestamp,
 });
 export type PatientRow = z.infer<typeof PatientRow>;
@@ -158,3 +160,24 @@ export const ChertEventRow = z.object({
   received_at: Timestamp,
 });
 export type ChertEventRow = z.infer<typeof ChertEventRow>;
+
+// ---------------------------------------------------------------- accounts (supabase/002_accounts.sql)
+
+export const AccountRole = z.enum(["caregiver", "doctor"]);
+export type AccountRole = z.infer<typeof AccountRole>;
+
+export const ProfileRow = z.object({
+  id: Uuid,
+  role: AccountRole,
+  full_name: z.string().nullable(),
+  created_at: Timestamp,
+});
+export type ProfileRow = z.infer<typeof ProfileRow>;
+
+export const CareTeamRow = z.object({
+  user_id: Uuid,
+  patient_id: Uuid,
+  role: AccountRole,
+  created_at: Timestamp,
+});
+export type CareTeamRow = z.infer<typeof CareTeamRow>;
