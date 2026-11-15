@@ -31,6 +31,13 @@ const EnvSchema = z.object({
    *    /dev/chert/* stays registered so tapbacks can be simulated.
    */
   CHERT_MODE: z.enum(["mock", "live", "shared"]).default("mock"),
+  /**
+   * Call path. web (default): our home-screen web apps on LiveKit + Supabase Realtime ringing.
+   * facetime: the old Chert FaceTime path (CHERT_FACETIME_MODE applies).
+   */
+  CALL_TRANSPORT: z.enum(["web", "facetime"]).default("web"),
+  /** Shared secret for the demo apps' token route and POST /demo/call-at (x-demo-code header). */
+  DEMO_ACCESS_CODE: optional,
   /** FaceTime calls. mock (default): no Chert/LiveKit request. live: LiveKit room + agent dispatch + POST /v1/calls. */
   CHERT_FACETIME_MODE: z.enum(["mock", "live"]).default("mock"),
   /** Override for the FaceTime Calls API base (default https://facetime.trychert.com/api). */
@@ -66,6 +73,7 @@ const EnvSchema = z.object({
   };
   if (e.CHERT_MODE === "live") need(["CHERT_MSG_TOKEN", "CHERT_FROM", "CHERT_WEBHOOK_SECRET"], "CHERT_MODE=live");
   if (e.CHERT_MODE === "shared") need(["CHERT_API_KEY", "CHERT_PROJECT_ID", "CHERT_LINE_ID"], "CHERT_MODE=shared");
+  if (e.CALL_TRANSPORT === "web") need(["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"], "CALL_TRANSPORT=web");
   if (e.CHERT_FACETIME_MODE === "live") {
     need(
       ["CHERT_API_KEY", "CHERT_PROJECT_ID", "CHERT_LINE_ID", "LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"],

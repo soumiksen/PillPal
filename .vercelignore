@@ -1,0 +1,16 @@
+# Never upload secrets or local build output to Vercel (deploys run from the repo root, project root = web/).
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/*.tsbuildinfo
+*.log
+tts-cache/
+docs/_source/
+agent/assets/avatars/helen-frames/
+api/test/

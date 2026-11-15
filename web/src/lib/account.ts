@@ -59,7 +59,7 @@ export function useAccount(): AccountState {
 }
 
 /** Where each role lands after signing in. */
-export const homeFor = (role: AccountRole | undefined) => (role === "doctor" ? "/doctor" : "/caregiver");
+export const homeFor = (role: AccountRole | undefined) => (role === "doctor" ? "/doctor" : "/dashboard");
 
 /**
  * Pages call this to require a signed-in user (and optionally a role). Signed-out users go to the

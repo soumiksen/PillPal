@@ -8,6 +8,7 @@ import {
   type IdResponse,
   type Symptom,
 } from "@pillpal/shared";
+import { callLine } from "../calls/index.js";
 import { facetime } from "../chert/facetime.js";
 import { db } from "../db.js";
 import { activeMeds, getPatient, must, mustOne, notFound, openCheckIn } from "../lib/data.js";
@@ -85,7 +86,12 @@ calls.post("/ended", async (c) => {
       .update({ ended_at: call.ended_at ?? new Date().toISOString(), transcript: body.transcript, language: body.language })
       .eq("id", call.id),
   );
-  facetime.releaseRoom(body.room_name);
+  callLine.releaseRoom(body.room_name);
+
+  // Nobody talked (no answer, or hung up at once): nothing to extract, no check-in row.
+  if (body.transcript.trim() === "") {
+    return c.json({ check_in_id: null, check_in: null } satisfies CallEndedResponse);
+  }
 
   const meds = await activeMeds(patientId);
   const extract = await ai.extractCheckIn(body.transcript, body.vision_events, meds);
@@ -120,18 +126,19 @@ calls.post("/ended", async (c) => {
       "orange check-in",
     );
   } else if (extract.risk_level === "red") {
-    // The agent usually escalated during the call already; do not ring everyone twice.
+    // The agent usually escalated during the call already (red, or orange when she asked); do not ring everyone twice.
     const already = must(
       "find red alert",
       await db
         .from("alerts")
         .select("id")
         .eq("patient_id", patientId)
-        .eq("level", "red")
+        .in("level", ["red", "orange"])
         .gte("created_at", call.started_at)
         .limit(1),
     ) as { id: string }[];
     if (already.length === 0) {
+      // Orange alerts from this same call (e.g. she asked for her caregiver) count as escalated too.
       const r = await escalate({ patient_id: patientId, reason: `Red-flag check-in — ${extract.summary}` });
       void r.callTask;
     }

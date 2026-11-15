@@ -10,8 +10,13 @@
  *   5. on facetime_group_unavailable / recipient_not_verified / any failure: caregiver text
  *      "Please FaceTime {name} now." and alerts.sent_to records the fallback
  * Never auto-calls 911.
+ *
+ * CALL_TRANSPORT=web (default) replaces steps 3–5: the caregiver's PillPal Care app rings into the SAME LiveKit room
+ * (Pal + patient + caregiver); with no active call a new escalation room is started and both phones ring.
+ * requested_by "patient" (she asked for her caregiver) is an orange alert, not red.
  */
 import type { AlertRow } from "@pillpal/shared";
+import { webCalls } from "../calls/index.js";
 import { FaceTimeError, facetime } from "../chert/facetime.js";
 import { db } from "../db.js";
 import { getPatient, must } from "../lib/data.js";
@@ -23,10 +28,12 @@ export type EscalateInput = {
   summary?: string;
   /** The live call room, when escalating from a call. */
   room_name?: string;
+  requested_by?: "patient" | "pal" | "system";
 };
 
 export type GroupOutcome =
   | { kind: "group_call"; chert_call_id: string; room_name: string }
+  | { kind: "web_ring"; room_name: string; new_call: boolean }
   | { kind: "fallback_text"; code: string; message_id: string | null }
   | { kind: "skipped"; reason: string };
 
@@ -45,29 +52,42 @@ export async function escalate(input: EscalateInput): Promise<EscalateResult> {
   const patient = await getPatient(input.patient_id);
   const name = displayName(patient, "the patient");
   const hasCaregiver = Boolean(caregiverPhone(patient));
+  const asked = input.requested_by === "patient";
 
   const alert = must(
     "insert alert",
     await db
       .from("alerts")
-      .insert({ patient_id: patient.id, level: "red", reason: input.reason, sent_to: hasCaregiver ? "caregiver" : null })
+      .insert({ patient_id: patient.id, level: asked ? "orange" : "red", reason: input.reason, sent_to: hasCaregiver ? "caregiver" : null })
       .select("*")
       .single(),
   ) as AlertRow;
 
   const reason = input.reason.replace(/[.\s]+$/, "");
+  const how = webCalls ? "Your PillPal Care app is ringing — tap Accept to join Pal and " + name + "." : "Pal is calling you both on FaceTime now.";
   const caregiverMessageId = await textCaregiver(
     patient,
-    `🔴 PillPal alert for ${name}: ${reason}. Pal is calling you both on FaceTime now. If this is an emergency, call 911.`,
+    asked
+      ? `📞 ${name} is asking for you on a PillPal call (${reason}). ${how}`
+      : `🔴 PillPal alert for ${name}: ${reason}. ${how} If this is an emergency, call 911.`,
     "escalation",
   );
-  console.log(`[escalate] red alert created${caregiverMessageId ? ", caregiver texted" : ""}`);
+  console.log(`[escalate] ${asked ? "orange" : "red"} alert created${caregiverMessageId ? ", caregiver texted" : ""}`);
 
-  const callTask = groupCall(patient.id, alert.id, input.room_name).catch((err: Error): GroupOutcome => {
+  const task = webCalls ? webRing(patient.id, alert.id) : groupCall(patient.id, alert.id, input.room_name);
+  const callTask = task.catch((err: Error): GroupOutcome => {
     console.error(`[escalate] call part failed: ${err.message}`);
     return { kind: "skipped", reason: "error" };
   });
   return { alert_id: alert.id, caregiver_message_id: caregiverMessageId, group_call_id: null, callTask };
+}
+
+/** Web transport: ring the caregiver's app into the current room (or start a room that rings both). */
+async function webRing(patientId: string, alertId: string): Promise<GroupOutcome> {
+  const r = await webCalls!.ringCaregiver(patientId);
+  await setSentTo(alertId, r.new_call ? "caregiver,web_call_both" : "caregiver,web_call_join");
+  console.log(`[escalate] caregiver app ringing (${r.new_call ? "new call, both phones" : "joining the current call"})`);
+  return { kind: "web_ring", room_name: r.room_name, new_call: r.new_call };
 }
 
 async function setSentTo(alertId: string, sentTo: string): Promise<void> {

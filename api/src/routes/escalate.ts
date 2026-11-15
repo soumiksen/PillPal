@@ -6,8 +6,8 @@ import { escalate as escalatePatient } from "../services/escalate.js";
 export const escalate = new Hono();
 
 /**
- * Agent: red flag → red alert + caregiver iMessage (awaited), then asynchronously end the 1:1 call and
- * ring patient + caregiver on group FaceTime, or text the caregiver "Please FaceTime … now."
+ * Agent: red flag → red alert + caregiver iMessage (awaited), then asynchronously ring the caregiver's app into the
+ * same call (web), or end the 1:1 call and ring both on group FaceTime / text "Please FaceTime … now." (facetime).
  * (services/escalate.ts). group_call_id is null because the call is placed after the response.
  * Never auto-calls 911.
  */

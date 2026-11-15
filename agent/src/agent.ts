@@ -1,5 +1,7 @@
 /**
- * Pal — PillPal's FaceTime voice+vision agent (LiveKit Agents for Node, Gemini Live).
+ * Pal — PillPal's video-call voice+vision agent (LiveKit Agents for Node, Gemini Live).
+ * Web calls (dispatch metadata transport:"web"): patient-web-* / caregiver-web-* participants from our phone apps.
+ * FaceTime calls: the chert-bridge-* participant.
  * Run under Chert: `npm run dev -w @pillpal/agent` then `chert dev --agent pillpal-agent`,
  * or dispatched by the API (agent name = AGENT_NAME).
  * Gemini Live handles voice only; video frames go to Claude via @pillpal/ai (tools).
@@ -13,13 +15,37 @@ import { FrameGrabber } from "./frames.js";
 import { installMouthTap, MouthLevel } from "./avatar/audio-tap.js";
 import { startAvatar, type Avatar } from "./avatar/publish.js";
 import { buildInstructions } from "./prompt.js";
+import { MixedAudioInput } from "./mixer.js";
 import { buildTools, escalateNow, type CallState } from "./tools.js";
 
-const GEMINI_LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025";
+/**
+ * Gemini Live model. PAL_REALTIME_MODEL switches it without code changes (GEMINI_LIVE_MODEL still works).
+ * Ids known to @livekit/agents-plugin-google 1.10.0 (LiveAPIModels): gemini-3.8-live, gemini-3.8-live-extended-thinking,
+ * gemini-3.1-flash-live-preview, gemini-live-2.5-flash-native-audio, gemini-live-2.5-flash-preview-native-audio,
+ * gemini-live-2.5-flash-preview-native-audio-09-2025, gemini-2.5-flash-native-audio-preview-12-2025, gemini-2.0-flash-exp.
+ */
+const GEMINI_LIVE_MODEL =
+  process.env.PAL_REALTIME_MODEL ?? process.env.GEMINI_LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025";
 
-function parseMeta(raw: string | undefined): { patient_id?: string; kind?: string; outbound?: boolean } {
+/**
+ * Server VAD tuned for phone calls: LOW start-of-speech sensitivity so Pal's own voice leaking from the phone speaker
+ * into its mic is less likely to count as the user talking, and ~500 ms of silence before end of speech.
+ * Barge-in stays on (activityHandling default = start of activity interrupts). Override with PAL_VAD_* env vars.
+ */
+const VAD = {
+  automaticActivityDetection: {
+    startOfSpeechSensitivity: (process.env.PAL_VAD_START ?? "START_SENSITIVITY_LOW") as never,
+    ...(process.env.PAL_VAD_END ? { endOfSpeechSensitivity: process.env.PAL_VAD_END as never } : {}),
+    prefixPaddingMs: Number(process.env.PAL_VAD_PREFIX_MS ?? 200),
+    silenceDurationMs: Number(process.env.PAL_VAD_SILENCE_MS ?? 500),
+  },
+};
+
+type JobMeta = { patient_id?: string; kind?: string; outbound?: boolean; transport?: string };
+
+function parseMeta(raw: string | undefined): JobMeta {
   try {
-    return raw ? (JSON.parse(raw) as { patient_id?: string; kind?: string; outbound?: boolean }) : {};
+    return raw ? (JSON.parse(raw) as JobMeta) : {};
   } catch {
     return {};
   }
@@ -55,7 +81,35 @@ function waitForBridgeReady(room: Room, timeoutMs: number): Promise<boolean> {
 }
 
 /** Words that mean "get my caregiver now". Safety-biased: a false alarm is better than a miss. */
-const EMERGENCY_WORDS = [/\bemergenc(y|ies)\b/i, /\bcall (my |the )?care[ -]?(giver|taker)\b/i, /\bemergencia\b/i, /\bllam\w*\s+(a\s+)?(mi|la)\s+cuidador/i];
+const EMERGENCY_WORDS = [
+  /\bemergenc(y|ies)\b/i,
+  /\bcall (my |the )?care[ -]?(giver|taker)\b/i,
+  /\bemergencia\b/i,
+  /\bllam\w*\s+(a\s+)?(mi|la)\s+cuidador/i,
+  /\b(call|get|need|want)\b.{0,15}\bmy (daughter|son|caregiver)\b/i,
+  /\bllam\w*\s+(a\s+)?mi\s+(hija|hijo)\b/i,
+];
+
+const isPatientWeb = (identity: string) => identity.startsWith("patient-web-");
+const isCaregiverWeb = (identity: string) => identity.startsWith("caregiver-web-");
+
+/** First participant matching `pick` (already in the room or joining within timeoutMs), else null. */
+function waitForParticipantWhere(room: Room, pick: (p: RemoteParticipant) => boolean, timeoutMs: number): Promise<RemoteParticipant | null> {
+  const have = [...room.remoteParticipants.values()].find(pick);
+  if (have) return Promise.resolve(have);
+  return new Promise((resolve) => {
+    const done = (p: RemoteParticipant | null) => {
+      clearTimeout(timer);
+      room.off(RoomEvent.ParticipantConnected, onJoin);
+      resolve(p);
+    };
+    const onJoin = (p: RemoteParticipant) => {
+      if (pick(p)) done(p);
+    };
+    const timer = setTimeout(() => done(null), timeoutMs);
+    room.on(RoomEvent.ParticipantConnected, onJoin);
+  });
+}
 
 /** Resolve once the participant's audio track is subscribed, or after timeoutMs (never blocks the call). */
 function waitForCallerAudio(room: Room, p: RemoteParticipant, timeoutMs: number): Promise<boolean> {
@@ -93,7 +147,11 @@ export default defineAgent({
 
     const context = await api.context(patientId);
     const roomName = ctx.room.name ?? "unknown";
-    const kind = (["check_in", "reminder", "group", "inbound"] as const).find((k) => k === meta.kind) ?? (meta.kind === "escalation" ? "group" : "inbound");
+    const web = meta.transport === "web";
+    // Web calls keep their own kinds (check_in, dose, escalation); FaceTime keeps the old mapping.
+    const kind = web
+      ? ((["check_in", "dose", "escalation"] as const).find((k) => k === meta.kind) ?? "check_in")
+      : ((["check_in", "reminder", "group", "inbound"] as const).find((k) => k === meta.kind) ?? (meta.kind === "escalation" ? "group" : "inbound"));
     const emergencyGroup = meta.kind === "escalation" || meta.kind === "group";
     await api.callStarted({ patient_id: patientId, room_name: roomName, kind }).catch(() => undefined);
 
@@ -109,6 +167,7 @@ export default defineAgent({
       wrongLogged: new Set(),
       escalated: false,
       ended: false,
+      transport: web ? "web" : "facetime",
       finish: async () => undefined,
       onTool: (name, phase, result) => {
         const c = avatar?.controller;
@@ -130,7 +189,7 @@ export default defineAgent({
     };
 
     const agent = new voice.Agent({
-      instructions: buildInstructions(context, { extraCaregiver: emergencyGroup }),
+      instructions: buildInstructions(context, { extraCaregiver: emergencyGroup, transport: web ? "web" : "facetime" }),
       tools: buildTools(state),
     });
     const session = new voice.AgentSession({
@@ -138,18 +197,62 @@ export default defineAgent({
         model: GEMINI_LIVE_MODEL,
         voice: "Kore",
         temperature: 0.6,
-        instructions: buildInstructions(context, { extraCaregiver: emergencyGroup }),
+        instructions: buildInstructions(context, { extraCaregiver: emergencyGroup, transport: web ? "web" : "facetime" }),
         // Thinking adds seconds before every spoken reply; Pal needs speed, not deliberation.
         thinkingConfig: { thinkingBudget: Number(process.env.GEMINI_THINKING_BUDGET ?? 0), includeThoughts: false },
         inputAudioTranscription: {},
         outputAudioTranscription: {},
+        realtimeInputConfig: VAD,
+        // A dropped Gemini socket (e.g. 1011 internal error) reconnects at once instead of after 2 s; the plugin
+        // replays the chat context into the new session.
+        connOptions: { maxRetry: 4, retryIntervalMs: 0, timeoutMs: 10_000 },
       }),
     });
+    console.log(`[pal] realtime model ${GEMINI_LIVE_MODEL}`);
 
+    // After a Gemini reconnect Pal says so once, then carries on (at most once per 15 s).
+    let lastSorry = 0;
+    session.on(voice.AgentSessionEventTypes.Error, (ev) => {
+      const err = ev.error as { type?: string; recoverable?: boolean };
+      if (err.type !== "realtime_model_error" || !err.recoverable) return;
+      console.log("[pal] realtime session dropped; reconnecting");
+      if (Date.now() - lastSorry < 15_000 || state.ended) return;
+      lastSorry = Date.now();
+      setTimeout(() => {
+        if (state.ended) return;
+        try {
+          session.generateReply({
+            instructions: `Say only "Sorry, I lost you for a second." in ${state.language === "en" ? "English" : "the patient's language"}, then continue the conversation where it was.`,
+          });
+        } catch {
+          /* the next user turn continues normally */
+        }
+      }, 1200);
+    });
+
+    // One line per turn with real timings: how long the user spoke, and how long until Pal started replying.
+    let userStartedAt = 0;
+    let userStoppedAt = 0;
+    session.on(voice.AgentSessionEventTypes.UserStateChanged, (ev) => {
+      const now = Date.now();
+      if (ev.newState === "speaking") userStartedAt = now;
+      else if (ev.oldState === "speaking" && userStartedAt) {
+        userStoppedAt = now;
+        console.log(`[pal] heard user (${now - userStartedAt} ms)`);
+      }
+    });
+    session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => {
+      if (ev.newState !== "speaking") return;
+      const latency = userStoppedAt ? `${Date.now() - userStoppedAt} ms` : "n/a";
+      console.log(`[pal] reply started (latency ${latency})`);
+      userStoppedAt = 0;
+    });
+
+    let groupAudio = false;
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
       if (ev.item.type !== "message") return;
       const text = ev.item.textContent;
-      if (text) state.transcript.push(`${ev.item.role === "user" ? "Patient" : "Pal"}: ${text}`);
+      if (text) state.transcript.push(`${ev.item.role === "user" ? (groupAudio ? "Patient/Caregiver" : "Patient") : "Pal"}: ${text}`);
     });
 
 
@@ -171,7 +274,8 @@ export default defineAgent({
     session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
       if (!ev.isFinal || netArmed || state.escalated || state.ended) return;
       const cg = context.patient.caregiver_name?.trim();
-      const named = cg && cg.length > 1 ? new RegExp(`\\bcall\\s+${cg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i") : null;
+      const named =
+        cg && cg.length > 1 ? new RegExp(`\\b(call|need|want|get)\\s+${cg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i") : null;
       if (!EMERGENCY_WORDS.some((re) => re.test(ev.transcript)) && !(named && named.test(ev.transcript))) return;
       netArmed = true;
       avatar?.controller.show("serious");
@@ -183,15 +287,22 @@ export default defineAgent({
             state,
             "Patient asked for their caregiver or said it is an emergency",
             "During the call the patient said 'emergency' or asked Pal to call their caregiver. Pal is bringing the caregiver in.",
+            "patient",
           ).catch(() => undefined);
         })();
       }, 10_000);
     });
 
     // Idempotent: save transcript + vision events, run extraction (API → ai.extractCheckIn), close.
+    let humanJoined = false;
     state.finish = async () => {
       if (state.ended) return;
       state.ended = true;
+      // Unanswered web call: nobody talked, so there is nothing to save (the API closes the row itself).
+      if (web && !humanJoined) {
+        setTimeout(() => ctx.shutdown("no answer"), 500);
+        return;
+      }
       try {
         await api.callEnded({
           room_name: roomName,
@@ -215,7 +326,8 @@ export default defineAgent({
       agent,
       room: ctx.room,
       // Video frames go to Claude via the FrameGrabber, not to Gemini Live (less load, fewer session errors).
-      inputOptions: { videoEnabled: false },
+      // Web calls: we decide when the call is over (the patient leaving), not the first linked participant.
+      inputOptions: web ? { videoEnabled: false, closeOnDisconnect: false } : { videoEnabled: false },
     });
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => avatar?.controller.setState(ev.newState));
     // Helen's mouth follows Pal's real voice: a read-only tap at the head of the audio output chain.
@@ -227,6 +339,112 @@ export default defineAgent({
         /* procedural mouth stays in charge */
       }
     }
+    /**
+     * Web calls (our phone apps): greet when the patient joins (no bridge_ready signal), bring the caregiver in when
+     * her phone joins (Pal greets her and summarises), mix both voices for Pal, and leave when the patient leaves.
+     */
+    async function runWebCall(): Promise<void> {
+      const room = ctx.room;
+      const pname = context.patient.preferred_name ?? context.patient.name ?? "the patient";
+      const cname = context.patient.caregiver_name ?? "your caregiver";
+      let mixer: MixedAudioInput | null = null;
+      let greeted = false;
+      let caregiverGreeted = false;
+      let caregiverWaiting: RemoteParticipant | null = null;
+
+      const micOf = (p: RemoteParticipant) =>
+        [...p.trackPublications.values()].find((t) => t.kind === TrackKind.KIND_AUDIO && t.subscribed && t.track);
+      const humans = () => [...room.remoteParticipants.values()].filter((p) => isPatientWeb(p.identity) || isCaregiverWeb(p.identity));
+
+      // Two people in the room → Pal hears both through one mixed input (the default input hears only one).
+      const syncAudio = () => {
+        const people = humans();
+        if (!mixer && people.length < 2) return;
+        if (!mixer) {
+          mixer = new MixedAudioInput();
+          session.input.audio = mixer;
+          groupAudio = true;
+          console.log("[pal] group call: mixing both voices");
+        }
+        for (const p of people) {
+          const mic = micOf(p);
+          if (mic?.track && mic.sid) mixer.addTrack(p.identity, mic.track, mic.sid);
+        }
+      };
+      room.on(RoomEvent.TrackSubscribed, () => syncAudio());
+      room.on(RoomEvent.ParticipantConnected, (p) => {
+        if (isPatientWeb(p.identity) || isCaregiverWeb(p.identity)) humanJoined = true;
+        syncAudio();
+        if (isCaregiverWeb(p.identity)) void greetCaregiver(p);
+      });
+      room.on(RoomEvent.ParticipantDisconnected, (p) => {
+        mixer?.removeTrack(p.identity);
+        if (isPatientWeb(p.identity) && !state.ended) {
+          console.log("[pal] patient left; ending the call");
+          void state.finish();
+        } else if (humans().length === 0 && !state.ended) {
+          void state.finish();
+        }
+      });
+
+      async function greetCaregiver(p: RemoteParticipant) {
+        if (caregiverGreeted || state.ended) return;
+        if (!greeted) {
+          caregiverWaiting = p; // the first greeting is still pending; handled right after it
+          return;
+        }
+        caregiverGreeted = true;
+        await waitForCallerAudio(room, p, 6000);
+        await state.waitUntilIdle?.(8000);
+        if (state.ended) return;
+        console.log("[pal] caregiver joined; greeting and summarising");
+        avatar?.controller.hello();
+        try {
+          session.generateReply({
+            instructions: `${cname} has just joined the call. Greet ${cname} by name, then give ${cname} a two-sentence summary of this call so far (what ${pname} said and why ${cname} was called). Then continue, addressing each person by name.`,
+          });
+        } catch {
+          /* Pal still hears her and the prompt covers it */
+        }
+      }
+
+      // Who answers first? Normally the patient; an escalation call rings both phones.
+      const first = await waitForParticipantWhere(
+        room,
+        (p) => isPatientWeb(p.identity) || (emergencyGroup && isCaregiverWeb(p.identity)),
+        75_000,
+      );
+      if (!first) {
+        console.log("[pal] web call was not answered; not greeting");
+        return;
+      }
+      humanJoined = true;
+      syncAudio();
+      // The phone publishes its mic a moment after joining; greet only once Pal can hear it (≤ 5 s).
+      const micT0 = Date.now();
+      const heard = await waitForCallerAudio(room, first, 5000);
+      console.log(`[pal] ${heard ? `mic ready after ${Date.now() - micT0} ms` : "no mic after 5 s; greeting anyway"}`);
+      await new Promise((r) => setTimeout(r, Math.min(delay, 1500)));
+      if (state.ended) return;
+      greeted = true;
+      if (isCaregiverWeb(first.identity)) caregiverGreeted = true;
+      console.log(`[pal] greeting via web_join (+${Date.now() - startedAt} ms since job start)`);
+      avatar?.controller.hello();
+      session.generateReply({
+        instructions: emergencyGroup
+          ? `Calmly greet ${isCaregiverWeb(first.identity) ? cname : pname} by name, say you are checking in because ${pname} reported a problem, and ${isCaregiverWeb(first.identity) ? `that ${pname} is being called too` : `ask how they feel right now`}.`
+          : `Greet ${pname} warmly by name and ask one friendly question.`,
+      });
+      const waiting = caregiverWaiting as RemoteParticipant | null;
+      if (waiting && !caregiverGreeted && room.remoteParticipants.has(waiting.identity)) void greetCaregiver(waiting);
+    }
+
+    const delay = Number(process.env.GREETING_DELAY_MS ?? 2500);
+    if (web) {
+      await runWebCall();
+      return;
+    }
+
     const caller = await ctx.waitForParticipant();
     // A call placed outside POST /dial (scripts/outbound-call.ts) announces its Chert call id in the room metadata.
     // Tell the backend as soon as it appears (not only at greeting time: the greeting can fire first, via caller audio)
@@ -253,7 +471,6 @@ export default defineAgent({
     //    while the phone is still ringing, so wait up to 90 s for either the ready signal or the caller's
     //    audio track, and stay quiet if neither comes (nobody answered).
     //  - Local test page: caller audio + a short beat.
-    const delay = Number(process.env.GREETING_DELAY_MS ?? 2500);
     const outboundish = meta.outbound === true || (meta.kind !== undefined && meta.kind !== "inbound");
     const underChert = caller.identity.startsWith("chert-bridge-");
     let how = "fallback";
