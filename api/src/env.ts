@@ -16,6 +16,8 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8787),
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
   PATIENT_ID: optional,
+  /** Devpost video patient (Shuvo), used by /video and /director (npm run video:seed prints it). */
+  VIDEO_PATIENT_ID: optional,
   PATIENT_PHONE: optional,
   CAREGIVER_PHONE: optional,
   DEMO_LANGUAGE: z.string().default("es"),

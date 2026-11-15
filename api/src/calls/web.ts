@@ -120,7 +120,7 @@ export class WebCallService {
   }
 
   /** Ring the patient (and, for escalation with no call on the line, the caregiver too). */
-  async dial(patientId: string, kind: WebCallKind, alsoCaregiver = false): Promise<DialResult> {
+  async dial(patientId: string, kind: WebCallKind, alsoCaregiver = false, agentMeta: Record<string, unknown> = {}): Promise<DialResult> {
     if (this.line || this.claiming) throw new LineBusyError();
     this.claiming = true;
     try {
@@ -129,7 +129,7 @@ export class WebCallService {
       await this.lk.createRoom(room);
       let callId: string;
       try {
-        await this.lk.dispatchAgent(room, { patient_id: patientId, kind, transport: "web" });
+        await this.lk.dispatchAgent(room, { patient_id: patientId, kind, transport: "web", ...agentMeta });
         callId = await this.store.insertCall({ patient_id: patientId, kind, room_name: room });
       } catch (err) {
         await this.lk.deleteRoom(room).catch(() => undefined);
@@ -298,6 +298,15 @@ export class WebCallService {
     console.log(`[webcall] call over (${why}), closing room`);
     await this.store.markEnded(line.call_id).catch((err: Error) => console.error(`[webcall] mark ended failed: ${err.message}`));
     await this.lk.deleteRoom(line.room_name).catch(() => undefined);
+  }
+
+  /** Close the active call now (optionally only if it is in `roomName`): cancel ringing, delete the room. */
+  async hangUp(roomName?: string, why = "hang_up"): Promise<boolean> {
+    const line = this.line;
+    if (!line || (roomName && line.room_name !== roomName)) return false;
+    if (line.outcome === "ringing") line.outcome = "no_answer";
+    await this.end(line, why);
+    return true;
   }
 
   /** Test/dev hook: identities in the active room. */

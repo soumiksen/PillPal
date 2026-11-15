@@ -29,7 +29,7 @@ export default function CaregiverPage() {
   const remembered = useRememberedPatient();
   const [picked, setPicked] = useState<string | null>(null);
   const mine = roster.patients.map((e) => e.patient);
-  const patientId = USE_MOCKS ? PATIENT_ID : (mine.find((p) => p.id === (picked ?? remembered))?.id ?? mine[0]?.id ?? "");
+  const patientId = USE_MOCKS ? PATIENT_ID : (mine.find((p) => p.id === (picked ?? remembered))?.id ?? mine.find((p) => p.id === process.env.NEXT_PUBLIC_PATIENT_ID)?.id ?? mine[0]?.id ?? "");
   const d = useLive(patientId);
   const [calling, setCalling] = useState(false);
   const [editing, setEditing] = useState(false);

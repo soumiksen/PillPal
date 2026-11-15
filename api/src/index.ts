@@ -13,6 +13,7 @@ import { calls } from "./routes/calls.js";
 import { devChert, devTools, webhooks } from "./routes/chert.js";
 import { demo } from "./routes/demo.js";
 import { dial } from "./routes/dial.js";
+import { director, video } from "./routes/video.js";
 import { doses } from "./routes/doses.js";
 import { escalate } from "./routes/escalate.js";
 import { medications } from "./routes/medications.js";
@@ -45,6 +46,8 @@ app.route("/dial", dial);
 app.route("/demo", demo);
 app.route("/reports", reports);
 app.route("/notify", notify);
+app.route("/video", video);
+app.route("/director", director);
 
 if (env.CHERT_MODE === "live") {
   app.route("/webhooks", webhooks);

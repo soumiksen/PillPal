@@ -14,7 +14,8 @@
     "facetime:ping": "tsx --env-file=../.env scripts/facetime-ping.ts",
     "seed:history": "tsx --env-file=../.env scripts/seed-history.ts",
     "test": "node --import tsx --test test/unit/*.test.ts",
-    "test:e2e": "node --env-file=../.env --import tsx --test test/e2e/*.test.ts"
+    "test:e2e": "node --env-file=../.env --import tsx --test test/e2e/*.test.ts",
+    "seed:video": "tsx --env-file=../.env scripts/seed-video-patient.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",

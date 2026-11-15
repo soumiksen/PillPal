@@ -17,6 +17,10 @@ import { startAvatar, type Avatar } from "./avatar/publish.js";
 import { buildInstructions } from "./prompt.js";
 import { MixedAudioInput } from "./mixer.js";
 import { buildTools, escalateNow, type CallState } from "./tools.js";
+import { runScriptedCall } from "./video/runner.js";
+
+/** live (default): Gemini Live Pal. script: Devpost video mode, pre-recorded lines from agent/video/script.json, no LLM. */
+const PAL_MODE = process.env.PAL_MODE === "script" ? "script" : "live";
 
 /**
  * Gemini Live model. PAL_REALTIME_MODEL switches it without code changes (GEMINI_LIVE_MODEL still works).
@@ -136,6 +140,7 @@ export default defineAgent({
     const meta = parseMeta(ctx.job.metadata);
     const patientId = meta.patient_id ?? process.env.PATIENT_ID;
     if (!patientId) throw new Error("No patient_id in job metadata and PATIENT_ID is unset");
+    if (PAL_MODE === "script") return runScriptedCall(ctx, meta.kind, patientId);
 
     // Register frame handlers before connecting, and subscribe to video too (starter is audio-only).
     const grabber = new FrameGrabber();

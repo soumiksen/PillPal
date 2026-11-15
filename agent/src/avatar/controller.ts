@@ -49,6 +49,11 @@ export class AvatarController {
     this.hold = null;
   }
 
+  /** One small head nod now (scripted video mode). */
+  nod() {
+    this.nodLeft = 0.5;
+  }
+
   /** Called when the call becomes live. */
   hello() {
     this.greeted = true;

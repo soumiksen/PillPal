@@ -1,0 +1,39 @@
+{
+  "_help": "Devpost video timeline (PAL_MODE=script). `at` = seconds after the patient taps Accept; steps with \"on\": \"caregiver_join\" count from the moment the caregiver's phone joins. say = line (WAV in voices/<id>.wav, regenerate with npm run video:voices). expr = Helen's expression (neutral smile listening thinking looking pleased concerned serious surprised goodbye); then = a second expression after N seconds; nod = small head nod. action = log_dose | escalate | end_call. Pal never talks over herself: a line that starts while another is still playing waits for it (the agent log shows the delay).",
+  "voice": "Kore",
+  "language": "en",
+  "scenes": {
+    "video_morning": {
+      "steps": [
+        { "at": 1.0, "id": "morning-1", "say": "Good morning, Shuvo! How is the hackathon going?", "expr": "smile" },
+        {
+          "at": 12.0,
+          "id": "morning-2",
+          "say": "No worries! You don't have any medication due until dinner at 8 PM. But you usually take a magnesium supplement in the morning!",
+          "expr": "thinking",
+          "then": { "after": 2.5, "expr": "smile" }
+        },
+        { "at": 26.0, "id": "morning-3", "say": "Sure! I'll update my entries. Have a good day!", "expr": "pleased", "nod": true },
+        { "at": 27.0, "action": "log_dose", "args": { "drug": "Magnesium", "confirmed_via": "facetime" } },
+        { "at": 31.0, "expr": "goodbye" },
+        { "at": 32.5, "action": "end_call" }
+      ]
+    },
+    "video_fall": {
+      "steps": [
+        { "at": 0.0, "expr": "concerned" },
+        { "at": 1.0, "id": "fall-1", "say": "Hi Shuvo, it's Pal. Is everything okay?" },
+        { "at": 10.0, "id": "fall-2", "say": "I'm calling Soumik right now. Stay still, Shuvo. Help is on the way.", "expr": "serious" },
+        { "at": 11.0, "action": "escalate", "args": { "requested_by": "patient", "reason": "Shuvo fell and asked for his son" } },
+        {
+          "on": "caregiver_join",
+          "at": 1.0,
+          "id": "fall-3",
+          "say": "Soumik, your father has fallen and asked for you. Please go to him now. If he's badly hurt, call 911.",
+          "expr": "serious"
+        },
+        { "on": "caregiver_join", "at": 13.0, "id": "fall-4", "say": "Shuvo, Soumik is on his way. I'm right here with you.", "expr": "concerned" }
+      ]
+    }
+  }
+}
