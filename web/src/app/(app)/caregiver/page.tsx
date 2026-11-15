@@ -142,7 +142,7 @@ export default function CaregiverPage() {
           </div>
           {lastCatch ? (
             <div className="mt-4 flex items-center gap-4 rounded-[18px] bg-caught-wash p-4">
-              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#D97706] text-white">
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#A87720] text-white">
                 <ShieldAlert className="size-5" aria-hidden />
               </span>
               <p className="text-[16px]">

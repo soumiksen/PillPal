@@ -163,7 +163,7 @@ function AboutStep({ p, setP }: { p: Draft; setP: (fn: (d: Draft) => Draft) => v
       <label className="flex cursor-pointer items-start gap-3 rounded-[14px] bg-mist p-4 sm:col-span-2">
         <input
           type="checkbox"
-          className="mt-1 size-5 accent-[#3F6212]"
+          className="mt-1 size-5 accent-[#305873]"
           checked={Boolean(p.consent_at)}
           onChange={(e) => setP((d) => ({ ...d, consent_at: e.target.checked ? new Date().toISOString() : null }))}
         />

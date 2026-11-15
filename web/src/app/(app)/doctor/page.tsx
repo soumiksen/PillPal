@@ -12,9 +12,9 @@ import { USE_MOCKS } from "@/lib/api";
 
 const DAY_CLS: Record<CompartmentState, string> = {
   taken: "bg-ok",
-  caught: "bg-[#F59E0B]",
-  missed: "border-2 border-missed bg-[repeating-linear-gradient(135deg,#FCA5A5_0_5px,#FECACA_5px_10px)]",
-  due: "bg-[#D5DBD1]",
+  caught: "bg-[#C99A3B]",
+  missed: "border-2 border-missed bg-[repeating-linear-gradient(135deg,#E3A893_0_5px,#F2D2C5_5px_10px)]",
+  due: "bg-[#D8CCB6]",
   empty: "border-2 border-dashed border-line",
 };
 const DAY_WORD: Record<CompartmentState, string> = { taken: "all taken", caught: "wrong pill caught", missed: "missed a dose", due: "doses still due", empty: "nothing scheduled" };

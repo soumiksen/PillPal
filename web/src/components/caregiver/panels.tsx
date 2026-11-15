@@ -211,17 +211,17 @@ export function WeekPanel({ history }: { history: { day: string; taken: number; 
       <div className="mt-5 h-[210px]" role="img" aria-label={`Doses confirmed per day this week, average ${avg}%`}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: -28 }} barCategoryGap="28%">
-            <CartesianGrid vertical stroke="#EEF0EC" horizontal={false} />
-            <XAxis dataKey="day" tickLine={false} axisLine={false} tick={{ fill: "#737D70", fontSize: 14 }} />
-            <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tickLine={false} axisLine={false} tick={{ fill: "#737D70", fontSize: 12 }} unit="%" />
+            <CartesianGrid vertical stroke="#EBE1CF" horizontal={false} />
+            <XAxis dataKey="day" tickLine={false} axisLine={false} tick={{ fill: "#5B6B76", fontSize: 14 }} />
+            <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tickLine={false} axisLine={false} tick={{ fill: "#5B6B76", fontSize: 12 }} unit="%" />
             <Tooltip
-              cursor={{ fill: "#F0FBDC", radius: 16 }}
+              cursor={{ fill: "#F3E8CF", radius: 16 }}
               formatter={(_v, _n, item) => [`${item.payload.taken} of ${item.payload.total} doses`, "Confirmed"]}
-              contentStyle={{ borderRadius: 14, border: "1px solid #E4E8E1", fontFamily: "var(--font-sans)" }}
+              contentStyle={{ borderRadius: 14, border: "1px solid #DED0BC", fontFamily: "var(--font-sans)" }}
             />
             <Bar isAnimationActive={false} dataKey="pct" radius={[999, 999, 999, 999]} maxBarSize={34} minPointSize={6}>
               {data.map((d) => (
-                <Cell key={d.day} fill={d.today ? "#2F362D" : d.pct >= 100 ? "#84CC16" : "#D9F99D"} />
+                <Cell key={d.day} fill={d.today ? "#102F46" : d.pct >= 100 ? "#305873" : "#B8CBD8"} />
               ))}
             </Bar>
           </BarChart>

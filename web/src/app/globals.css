@@ -1,49 +1,63 @@
 @import "tailwindcss";
-@import "@fontsource-variable/urbanist";
+@import "@fontsource/cinzel/500.css";
+@import "@fontsource/cinzel/600.css";
+@import "@fontsource/cinzel/700.css";
+@import "@fontsource/barlow-semi-condensed/400.css";
+@import "@fontsource/barlow-semi-condensed/400-italic.css";
+@import "@fontsource/barlow-semi-condensed/500.css";
+@import "@fontsource/barlow-semi-condensed/600.css";
 
-/* PillPal — "fresh lime clinic" tokens (inspired by bright health dashboards)
-   mist     #ECEFEA  app background, cool grey-green
-   paper    #FFFFFF  cards
-   ink      #1E271C  text: deep olive-black
-   teal*    #3F6212  primary buttons / links (deep leaf green, passes AA with white)
-   lime     #A3E635  brand highlight (always with dark text)
-   char     #2F362D  dark side panel
+/* PillPal — "The Odyssey" tokens, after HackUTA 2026 (hackuta.com): a voyage across parchment and Aegean ink.
+   mist     #EEE3D2  parchment page
+   paper    #F8F1E5  sun-bleached scroll (cards)
+   ink      #102F46  deep Aegean navy (text)
+   teal*    #305873  sea slate: primary links and buttons (white text passes AA)
+   lime*    #E8C97A  Ithacan gold highlight (always with navy text)
+   char     #102F46  night sea: dark panels
+   Token names are unchanged so every component keeps working; only the values moved.
    Status colours are always paired with an icon + word, never colour alone. */
 @theme {
-  --color-mist: #eceeea;
-  --color-paper: #ffffff;
-  --color-ink: #1e271c;
-  --color-ink-soft: #4a5547;
-  --color-ink-faint: #737d70;
-  --color-teal: #3f6212;
-  --color-teal-deep: #2c4a0b;
-  --color-mint: #d9f99d;
-  --color-mint-soft: #f0fbdc;
-  --color-line: #e4e8e1;
+  --color-mist: #eee3d2;
+  --color-paper: #f8f1e5;
+  --color-ink: #102f46;
+  --color-ink-soft: #305873;
+  --color-ink-faint: #5b6b76;
+  --color-teal: #305873;
+  --color-teal-deep: #1a3a52;
+  --color-mint: #e8d9b5;
+  --color-mint-soft: #f3e8cf;
+  --color-line: #ded0bc;
 
-  --color-lime: #a3e635;
-  --color-lime-deep: #84cc16;
-  --color-char: #2f362d;
-  --color-char-2: #3b4339;
-  --color-char-line: #4b5448;
+  --color-lime: #e8c97a;
+  --color-lime-deep: #d6b25c;
+  --color-char: #102f46;
+  --color-char-2: #1a3a52;
+  --color-char-line: #305873;
 
-  --color-ok: #3f7d0f;
-  --color-ok-wash: #ecfccb;
-  --color-wait: #64706a;
-  --color-wait-wash: #eff1ee;
-  --color-caught: #b45309;
-  --color-caught-wash: #fff1db;
-  --color-missed: #c0261c;
-  --color-missed-wash: #fdeceb;
+  /* Olive (taken), bronze (wrong pill caught), stone (due), pottery red (missed). */
+  --color-ok: #4a6b2a;
+  --color-ok-wash: #e6e9cf;
+  --color-wait: #6b6558;
+  --color-wait-wash: #ece4d4;
+  --color-caught: #8a5a0f;
+  --color-caught-wash: #f5e6c4;
+  --color-missed: #a8402a;
+  --color-missed-wash: #f6ded4;
 
-  --font-sans: "Urbanist Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Urbanist Variable", ui-sans-serif, system-ui, sans-serif;
+  /* Hard-coded motif colours used by components (pill box lids, charts). */
+  --color-bronze: #c99a3b;
+  --color-bronze-deep: #a87720;
+  --color-sea: #4f86a8;
+  --color-sand: #d8ccb6;
+
+  --font-sans: "Barlow Semi Condensed", "Arial Narrow", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Cinzel", Georgia, "Times New Roman", serif;
 
   --radius-chip: 999px;
-  --radius-panel: 28px;
-  --radius-field: 14px;
+  --radius-panel: 14px;
+  --radius-field: 6px;
 
-  --shadow-lift: 0 1px 2px rgb(30 39 28 / 0.04), 0 12px 32px -16px rgb(30 39 28 / 0.22);
+  --shadow-lift: 0 1px 2px rgb(16 47 70 / 0.06), 0 14px 32px -16px rgb(16 47 70 / 0.32);
 }
 
 html {
@@ -55,35 +69,48 @@ html {
   text-rendering: optimizeLegibility;
 }
 
+/* Morning mist over the parchment, like the sky above the Aegean on hackuta.com. */
 body {
   min-height: 100dvh;
+  background:
+    linear-gradient(180deg, rgb(164 172 176 / 0.28) 0%, rgb(238 227 210 / 0) 220px),
+    var(--color-mist);
 }
 
+/* Carved Greek capitals for headings. Cinzel needs a little air between letters. */
 .font-display {
   font-family: var(--font-display);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .tabular {
   font-variant-numeric: tabular-nums;
 }
 
+/* Greek key (meander) border: the frieze on every Greek vase. Decorative only. */
+.meander {
+  height: 12px;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12' viewBox='0 0 24 12'%3E%3Cpath d='M0 11h4V3h10v6H8V6h3' fill='none' stroke='black' stroke-width='1.6'/%3E%3Cpath d='M12 11h12' fill='none' stroke='black' stroke-width='1.6'/%3E%3C/svg%3E") repeat-x left center / 24px 12px;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12' viewBox='0 0 24 12'%3E%3Cpath d='M0 11h4V3h10v6H8V6h3' fill='none' stroke='black' stroke-width='1.6'/%3E%3Cpath d='M12 11h12' fill='none' stroke='black' stroke-width='1.6'/%3E%3C/svg%3E") repeat-x left center / 24px 12px;
+}
+
 :focus-visible {
   outline: 3px solid var(--color-teal);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
 ::selection {
   background: var(--color-mint);
 }
 
-/* The one orchestrated motion: a soft pulse on the live-call dot. */
+/* The one orchestrated motion: a soft gold pulse on the live-call dot (a beacon fire). */
 @keyframes live-pulse {
-  0% { box-shadow: 0 0 0 0 rgb(163 230 53 / 0.6); }
-  70% { box-shadow: 0 0 0 10px rgb(163 230 53 / 0); }
-  100% { box-shadow: 0 0 0 0 rgb(163 230 53 / 0); }
+  0% { box-shadow: 0 0 0 0 rgb(232 201 122 / 0.7); }
+  70% { box-shadow: 0 0 0 10px rgb(232 201 122 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(232 201 122 / 0); }
 }
 .live-dot {
   animation: live-pulse 1.8s ease-out infinite;
@@ -98,7 +125,16 @@ body {
   animation: arrive 260ms ease-out both;
 }
 
+/* Gentle swell for the decorative sea on the sign-in page. */
+@keyframes swell {
+  from { transform: translateX(0); }
+  to { transform: translateX(-120px); }
+}
+.swell {
+  animation: swell 9s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .live-dot, .arrive { animation: none; }
+  .live-dot, .arrive, .swell { animation: none; }
   * { scroll-behavior: auto !important; transition: none !important; }
 }

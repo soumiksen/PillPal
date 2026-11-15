@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, HeartHandshake, MailCheck, Stethoscope } from "lucide-react";
-import { Mark } from "@/components/brand";
+import { Mark, Meander, Voyage } from "@/components/brand";
 import { Button, Field, Input, cn } from "@/components/ui";
 import { USE_MOCKS } from "@/lib/api";
 import { homeFor, signIn, signUp, useAccount, type AccountRole } from "@/lib/account";
@@ -53,26 +53,29 @@ export default function SignIn() {
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1fr_minmax(0,580px)]">
-      <section className="relative hidden overflow-hidden bg-char p-14 text-white lg:flex lg:flex-col lg:justify-between">
+      <section className="relative hidden overflow-hidden bg-char p-14 pb-56 text-mist lg:flex lg:flex-col lg:justify-between">
+        <Meander className="absolute inset-x-0 top-0 text-lime/70" />
         <div className="flex items-center gap-2">
           <Mark className="size-10" />
-          <span className="font-display text-[28px] font-bold tracking-[-0.03em]">pillpal</span>
+          <span className="font-display text-[26px] font-bold">pillpal</span>
         </div>
         <MiniBox />
-        <div>
-          <h1 className="max-w-[16ch] font-display text-[clamp(2.6rem,4.4vw,4rem)] font-semibold leading-[1.02] tracking-[-0.035em]">
+        <div className="relative z-10">
+          <p className="mb-3 font-display text-[15px] font-semibold tracking-[0.3em] text-lime">Begin the voyage home</p>
+          <h1 className="max-w-[18ch] font-display text-[clamp(2.3rem,3.8vw,3.5rem)] font-semibold leading-[1.1]">
             Every lid opens when the dose is really taken.
           </h1>
-          <p className="mt-4 max-w-[46ch] text-[19px] leading-relaxed text-white/75">
+          <p className="mt-4 max-w-[46ch] text-[19px] leading-relaxed text-mist/80">
             Pal checks in over FaceTime and iMessage, looks at the pill on camera, and fills in the pill box for the family and the doctor.
           </p>
         </div>
+        <Voyage className="pointer-events-none absolute inset-x-0 bottom-0 h-[200px] w-full" />
       </section>
 
       <section className="flex flex-col justify-center bg-paper px-6 py-10 sm:px-12">
         <div className="mb-8 flex items-center gap-2 lg:hidden">
           <Mark className="size-9" />
-          <span className="font-display text-[26px] font-bold tracking-[-0.03em]">pillpal</span>
+          <span className="font-display text-[24px] font-bold">pillpal</span>
         </div>
 
         {sentTo ? (
@@ -185,9 +188,9 @@ function MiniBox() {
       {cells.map((c, i) => (
         <div key={i} className="relative h-20 pt-3">
           {c === "d" ? null : (
-            <span className={cn("absolute inset-x-1 top-0 h-3 rounded-t-[8px] [transform:perspective(160px)_rotateX(48deg)] [transform-origin:bottom]", c === "c" ? "bg-[#F59E0B]" : "bg-lime")} />
+            <span className={cn("absolute inset-x-1 top-0 h-3 rounded-t-[8px] [transform:perspective(160px)_rotateX(48deg)] [transform-origin:bottom]", c === "c" ? "bg-[#C99A3B]" : "bg-lime")} />
           )}
-          <span className={cn("absolute inset-x-0 bottom-0 top-3 rounded-[10px]", c === "d" ? "bg-[#4B5448]" : c === "c" ? "bg-[#F59E0B]/25" : "bg-lime/20")} />
+          <span className={cn("absolute inset-x-0 bottom-0 top-3 rounded-[6px]", c === "d" ? "bg-[#305873]/60" : c === "c" ? "bg-[#C99A3B]/30" : "bg-sea/35")} />
         </div>
       ))}
     </div>
