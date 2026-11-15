@@ -11,7 +11,9 @@ import * as ai from "@pillpal/ai";
 import type { PatientRow } from "@pillpal/shared";
 import { db } from "../db.js";
 import { env } from "../env.js";
-import { activeMeds, dueNow, findPatientByHandle, must } from "../lib/data.js";
+import { hasFfmpeg, toWav16kMono } from "../lib/audio.js";
+import { activeMeds, dueNow, findPatientByHandle } from "../lib/data.js";
+import { latestPendingReminder, markTaken } from "../lib/doses.js";
 import { escalate } from "../services/escalate.js";
 import { CHERT_BASE, authHeaders } from "./http.js";
 import { messaging } from "./messaging.js";
@@ -80,16 +82,9 @@ async function onReaction(event: ReactionEvent): Promise<HandleResult> {
   if (!isHeart(r.reaction ?? { kind: "" })) {
     return { status: "ignored", event_id: event.event_id, reason: `reaction ${r.reaction?.kind ?? "?"} is not a heart` };
   }
-  const updated = must(
-    "tapback → dose taken",
-    await db
-      .from("dose_events")
-      .update({ status: "taken", confirmed_via: "imessage_tapback" })
-      .eq("chert_message_id", r.target_message_id)
-      .select("id"),
-  ) as { id: string }[];
+  const updated = await markTaken({ chert_message_id: r.target_message_id }, "imessage_tapback");
   if (updated.length === 0) {
-    return { status: "ignored", event_id: event.event_id, reason: "no dose_event for that message" };
+    return { status: "ignored", event_id: event.event_id, reason: "no pending dose_event for that message" };
   }
   return { status: "processed", event_id: event.event_id, actions: [`dose_taken x${updated.length}`] };
 }
@@ -134,17 +129,33 @@ async function onMessage(event: MessageReceivedEvent): Promise<HandleResult> {
   for (const p of parts.filter(isMedia)) {
     const kind = mediaKind(p);
     if (kind === "image") actions.push(await onImage(patient, p));
-    else if (kind === "voice_memo") {
-      console.log("[chert] voice memo received"); // TODO: ffmpeg CAF → WAV → ai.transcribe
-      actions.push("voice_memo_received");
-    } else actions.push("media_ignored");
+    else if (kind === "voice_memo") actions.push(...(await onVoiceMemo(patient, p, msg.id)));
+    else actions.push("media_ignored");
   }
 
   if (actions.length === 0) return { status: "ignored", event_id: event.event_id, reason: "no text or media parts" };
   return { status: "processed", event_id: event.event_id, actions };
 }
 
+/**
+ * iMessage renders a tapback as text ("Loved “…”") for clients that cannot show reactions. On a
+ * Shared line that is the only form a ❤ can reach us in, so treat it like reaction.added.
+ */
+const TAPBACK_TEXT = /^(loved|liked|emphasized|le encantó|me gusta|a aimé|❤️|❤)\s*[“"«]/i;
+
+/** Shared lines: no reaction events, so a "taken" reply or a ❤ tapback-as-text confirms the latest reminder. */
+async function confirmByReply(patient: PatientRow, via: string): Promise<string> {
+  const pending = await latestPendingReminder(patient.id);
+  if (!pending) return "no_pending_reminder";
+  const changed = await markTaken({ id: pending.id }, via);
+  return changed.length ? `dose_taken x${changed.length} (${via})` : "already_taken";
+}
+
 async function onText(patient: PatientRow, text: string, messageId: string): Promise<string[]> {
+  if (TAPBACK_TEXT.test(text)) {
+    if (/^(liked|me gusta)/i.test(text)) return ["tapback_text_ignored (not a heart)"];
+    return [await confirmByReply(patient, "imessage_tapback")];
+  }
   const c = await ai.classifyMessage(text);
   const doubleDose = POSSIBLE_DOUBLE_DOSE.test(text);
   const actions = [`classified intent=${c.intent} red_flag=${c.red_flag}${doubleDose ? " double_dose" : ""}`];
@@ -155,11 +166,28 @@ async function onText(patient: PatientRow, text: string, messageId: string): Pro
     const r = await escalate({ patient_id: patient.id, reason, summary: `${name} wrote: "${c.english}"` });
     actions.push(`escalated alert=${r.alert_id}`);
   } else if (c.intent === "dose_taken") {
-    // Acknowledge with a ❤ tapback on their message; confirming the dose itself stays with the tapback/agent flow.
-    await messaging.react(messageId, "love").catch((e: Error) => console.error(`[chert] react failed: ${e.message}`));
-    actions.push("reacted love");
+    if (messaging.supports.inboundReactions) {
+      // Acknowledge with a ❤ tapback; confirming the dose itself stays with the tapback/agent flow.
+      await messaging.react(messageId, "love").catch((e: Error) => console.error(`[chert] react failed: ${e.message}`));
+      actions.push("reacted love");
+    } else {
+      actions.push(await confirmByReply(patient, "imessage_reply"));
+    }
   }
   return actions;
+}
+
+async function onVoiceMemo(patient: PatientRow, part: MediaPart, messageId: string): Promise<string[]> {
+  if (!hasFfmpeg()) {
+    console.log("[chert] voice memo received, ffmpeg not installed — transcription skipped");
+    return ["voice_memo_skipped_no_ffmpeg"];
+  }
+  const file = await messaging.downloadAttachment(part.attachment_id);
+  const wav = await toWav16kMono(file.data);
+  const t = await ai.transcribe(wav);
+  console.log(`[chert] voice memo transcribed (language=${t.language})`);
+  if (!t.transcript.trim()) return ["voice_memo_empty"];
+  return ["voice_memo_transcribed", ...(await onText(patient, t.transcript, messageId))];
 }
 
 async function onImage(patient: PatientRow, part: MediaPart): Promise<string> {

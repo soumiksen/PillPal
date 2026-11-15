@@ -1,17 +1,22 @@
 /**
  * Chert event entry points.
  *  - webhooks (live only): POST /webhooks/chert, signed with the subscription secret.
- *  - dev (mock only): /dev/chert/* to inject Chert-shaped events and read the mock outbox.
+ *  - dev (CHERT_MODE mock or shared): /dev/chert/* to inject Chert-shaped events and read the mock
+ *    outbox. Shared lines cannot report tapbacks, so /dev/chert/tapback is how they are simulated.
+ *  - dev tools (same modes): /dev/scheduler/tick, /dev/facetime/*.
  */
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import { Uuid } from "@pillpal/shared";
 import { handleEvent, verifyWebhookSignature, webhookSecret } from "../chert/events.js";
+import { facetime, mockFaceTime } from "../chert/facetime.js";
 import { mockOutbox } from "../chert/messaging.js";
 import type { ChertEnvelope, MessageReceivedEvent, ReactionEvent } from "../chert/types.js";
 import { getPatient } from "../lib/data.js";
 import { ValidationError, jsonBody } from "../lib/http.js";
+import { patientPhone } from "../lib/notices.js";
+import { safeTick } from "../scheduler.js";
 
 // ---------------------------------------------------------------- live: signed webhook
 
@@ -78,7 +83,8 @@ devChert.post("/tapback", async (c) => {
 devChert.post("/text", async (c) => {
   const { patient_id, text } = await jsonBody(c, z.object({ patient_id: Uuid, text: z.string().min(1) }));
   const patient = await getPatient(patient_id);
-  if (!patient.phone) throw new ValidationError([{ path: "patient_id", message: "Patient has no phone on file" }]);
+  const phone = patientPhone(patient);
+  if (!phone) throw new ValidationError([{ path: "patient_id", message: "Patient has no phone on file" }]);
   const now = new Date().toISOString();
   const event: MessageReceivedEvent = {
     event_id: `mock:msg:${randomUUID()}`,
@@ -90,7 +96,7 @@ devChert.post("/text", async (c) => {
       message: {
         id: `mock_in_${randomUUID()}`,
         direction: "inbound",
-        sender_handle: { handle: patient.phone, service: "imessage", is_me: false },
+        sender_handle: { handle: phone, service: "imessage", is_me: false },
         parts: [{ type: "text", value: text }],
         sent_at: now,
         service: "imessage",
@@ -102,3 +108,25 @@ devChert.post("/text", async (c) => {
 
 /** Mock outbox: ids, kinds, recipient role and timestamps only (no phones, no bodies). */
 devChert.get("/outbox", (c) => c.json({ messages: mockOutbox() ?? [] }));
+
+// ---------------------------------------------------------------- dev tools (non-live CHERT_MODE)
+
+export const devTools = new Hono();
+
+/** Run one scheduler pass now (same code as the cron tick). → counts only. */
+devTools.post("/scheduler/tick", async (c) => c.json(await safeTick()));
+
+/** Who holds the FaceTime line (ids and kind only). */
+devTools.get("/facetime/line", (c) => {
+  const l = facetime.activeLine();
+  return c.json({ mode: facetime.mode, line: l ? { chert_call_id: l.chert_call_id, room_name: l.room_name, kind: l.kind, group: l.group } : null });
+});
+
+/** Mock FaceTime only: make the next group call fail with `code` (tests the escalation fallback). */
+devTools.post("/facetime/fail-next-group", async (c) => {
+  const mock = mockFaceTime();
+  if (!mock) return c.json({ error: "mock_facetime_only" }, 409);
+  const { code } = await jsonBody(c, z.object({ code: z.string().default("facetime_group_unavailable") }));
+  mock.failNextGroup(code);
+  return c.json({ ok: true });
+});

@@ -7,10 +7,14 @@
   "scripts": {
     "dev": "tsx watch --env-file=../.env src/index.ts",
     "start": "node --env-file=../.env dist/index.js",
-    "typecheck": "tsc -b && tsc -p scripts/tsconfig.json",
+    "typecheck": "tsc -b && tsc -p scripts/tsconfig.json && tsc -p test/tsconfig.json",
     "build": "tsc -b",
     "seed:patient": "tsx --env-file=../.env scripts/seed-demo-patient.ts",
-    "chert:ping": "tsx --env-file=../.env scripts/chert-ping.ts"
+    "chert:ping": "tsx --env-file=../.env scripts/chert-ping.ts",
+    "facetime:ping": "tsx --env-file=../.env scripts/facetime-ping.ts",
+    "seed:history": "tsx --env-file=../.env scripts/seed-history.ts",
+    "test": "node --import tsx --test test/unit/*.test.ts",
+    "test:e2e": "node --import tsx --test test/e2e/*.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",
@@ -18,6 +22,8 @@
     "@pillpal/shared": "*",
     "@supabase/supabase-js": "^2.119.0",
     "hono": "^4.6.14",
+    "livekit-server-sdk": "^2.19.3",
+    "node-cron": "^4.6.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
