@@ -5,32 +5,44 @@ import {
   type IdResponse,
   type PatientContext,
 } from "@pillpal/shared";
-import { jsonBody, uuidParam } from "../lib/http.js";
-import { newId, stubCheckIns, stubDueNow, stubMeds, stubMemories, stubPatient } from "../lib/stubs.js";
+import { db } from "../db.js";
+import { activeMeds, dueNow, getPatient, must, mustOne, notFound, recentCheckIns, recentMemories } from "../lib/data.js";
+import { ValidationError, jsonBody, uuidParam } from "../lib/http.js";
 
 export const patients = new Hono();
 
 /** Agent: everything Pal needs at the start of a call. */
-patients.get("/:id/context", (c) => {
+patients.get("/:id/context", async (c) => {
   const id = uuidParam(c, "id");
-  const meds = stubMeds(id);
+  const patient = await getPatient(id);
+  const [meds, memories, lastCheckins] = await Promise.all([
+    activeMeds(id),
+    recentMemories(id, 10),
+    recentCheckIns(id, 3),
+  ]);
   return c.json({
-    patient: stubPatient(id),
+    patient,
     meds,
-    due_now: stubDueNow(meds),
-    memories: stubMemories(id),
-    last_checkins: stubCheckIns(id),
+    due_now: await dueNow(id, meds),
+    memories,
+    last_checkins: lastCheckins,
   } satisfies PatientContext);
 });
 
 /** Web onboarding form. */
 patients.post("/", async (c) => {
-  await jsonBody(c, CreatePatientBody);
-  return c.json({ id: newId() } satisfies IdResponse, 201);
+  const body = await jsonBody(c, CreatePatientBody);
+  const row = mustOne("insert patient", await db.from("patients").insert(body).select("id").single());
+  return c.json({ id: row.id } satisfies IdResponse, 201);
 });
 
 patients.patch("/:id", async (c) => {
   const id = uuidParam(c, "id");
-  await jsonBody(c, UpdatePatientBody);
+  const body = await jsonBody(c, UpdatePatientBody);
+  if (Object.keys(body).length === 0) {
+    throw new ValidationError([{ path: "(body)", message: "Nothing to update" }]);
+  }
+  const rows = must("update patient", await db.from("patients").update(body).eq("id", id).select("id"));
+  if (rows.length === 0) throw notFound("patient");
   return c.json({ id } satisfies IdResponse);
 });

@@ -9,7 +9,8 @@
     "start": "node --env-file=../.env dist/index.js",
     "typecheck": "tsc -b && tsc -p scripts/tsconfig.json",
     "build": "tsc -b",
-    "seed:patient": "tsx --env-file=../.env scripts/seed-demo-patient.ts"
+    "seed:patient": "tsx --env-file=../.env scripts/seed-demo-patient.ts",
+    "chert:ping": "tsx --env-file=../.env scripts/chert-ping.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",

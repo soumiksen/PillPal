@@ -6,8 +6,10 @@ import {
   type IdResponse,
 } from "@pillpal/shared";
 import type { z } from "zod";
+import { db } from "../db.js";
+import { getMedication, getPatient, must, mustOne } from "../lib/data.js";
 import { jsonBody, uuidParam, validate } from "../lib/http.js";
-import { newId } from "../lib/stubs.js";
+import { uploadPillPhoto } from "../lib/storage.js";
 import { fileToUpload, isMultipart, multipartBody } from "../lib/upload.js";
 
 export const medications = new Hono();
@@ -21,14 +23,16 @@ const BOOL_FIELDS = new Set(["active"]);
  * Multipart arrays may be a JSON array string or comma-separated.
  */
 async function readMedication<S extends z.ZodType>(c: Context, schema: S) {
-  if (!isMultipart(c)) return { body: await jsonBody(c, schema), photoB64: undefined };
+  if (!isMultipart(c)) {
+    return { body: await jsonBody(c, schema), photo: undefined as Photo | undefined };
+  }
 
   const form = await multipartBody(c);
   const fields: Record<string, unknown> = {};
-  let photoB64: string | undefined;
+  let photo: Photo | undefined;
   for (const [k, v] of Object.entries(form)) {
     if (v instanceof File) {
-      if (k === "pill_photo" && v.size > 0) photoB64 = (await fileToUpload(v)).b64;
+      if (k === "pill_photo" && v.size > 0) photo = await fileToUpload(v);
       continue;
     }
     if (ARRAY_FIELDS.has(k)) {
@@ -38,7 +42,18 @@ async function readMedication<S extends z.ZodType>(c: Context, schema: S) {
     else if (BOOL_FIELDS.has(k)) fields[k] = v === "true";
     else fields[k] = v;
   }
-  return { body: validate(schema, fields), photoB64 };
+  return { body: validate(schema, fields), photo };
+}
+
+type Photo = { b64: string; mime?: string };
+
+/** Store the reference photo (public bucket) and describe it with ai.describePill. */
+async function processPhoto(patientId: string, photo: Photo) {
+  const [reference_photo_url, pill_description] = await Promise.all([
+    uploadPillPhoto(patientId, photo.b64, photo.mime),
+    ai.describePill(photo.b64.replace(/^data:[^,]*,/, "")),
+  ]);
+  return { reference_photo_url, pill_description };
 }
 
 function safeJson(s: string): unknown {
@@ -49,18 +64,30 @@ function safeJson(s: string): unknown {
   }
 }
 
-/** Web: confirmed Rx fields (+ optional pill photo → ai.describePill). */
+/** Web: confirmed Rx fields (+ optional pill photo → Storage + ai.describePill). */
 medications.post("/", async (c) => {
-  const { body, photoB64 } = await readMedication(c, CreateMedicationBody);
-  const b64 = photoB64 ?? body.pill_photo_b64;
-  if (b64) await ai.describePill(b64); // stub: description would be stored with the row
-  return c.json({ id: newId() } satisfies IdResponse, 201);
+  const { body, photo } = await readMedication(c, CreateMedicationBody);
+  const { pill_photo_b64, ...fields } = body;
+  await getPatient(fields.patient_id);
+  const p = photo ?? (pill_photo_b64 ? { b64: pill_photo_b64 } : undefined);
+  const extra = p ? await processPhoto(fields.patient_id, p) : {};
+  const row = mustOne(
+    "insert medication",
+    await db.from("medications").insert({ ...fields, ...extra }).select("id").single(),
+  );
+  return c.json({ id: row.id } satisfies IdResponse, 201);
 });
 
 medications.patch("/:id", async (c) => {
   const id = uuidParam(c, "id");
-  const { body, photoB64 } = await readMedication(c, UpdateMedicationBody);
-  const b64 = photoB64 ?? body.pill_photo_b64;
-  if (b64) await ai.describePill(b64);
+  const { body, photo } = await readMedication(c, UpdateMedicationBody);
+  const { pill_photo_b64, ...fields } = body;
+  const med = await getMedication(id);
+  const p = photo ?? (pill_photo_b64 ? { b64: pill_photo_b64 } : undefined);
+  const extra = p && med.patient_id ? await processPhoto(med.patient_id, p) : {};
+  const patch = { ...fields, ...extra };
+  if (Object.keys(patch).length > 0) {
+    must("update medication", await db.from("medications").update(patch).eq("id", id));
+  }
   return c.json({ id } satisfies IdResponse);
 });
