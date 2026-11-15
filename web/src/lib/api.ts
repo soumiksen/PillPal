@@ -89,7 +89,7 @@ export const api = {
   },
 
   async generateBrief(patient_id: string): Promise<Brief> {
-    if (USE_MOCKS) return mock.mockBrief();
+    if (USE_MOCKS) return mock.mockBrief(patient_id);
     return req("/reports/generate", { method: "POST", body: JSON.stringify({ patient_id }) });
   },
 

@@ -23,10 +23,13 @@ npm run dev                  # http://localhost:3000
 
 | Route | For | What it shows |
 | --- | --- | --- |
-| `/` | Everyone | Today's dose count for the patient and a choice of view |
-| `/caregiver` | Caregiver | Patient header (language badge), urgent red-alert banner (FaceTime / Call 911 / I'm handling it), today's dose timeline with a 6 am–10 pm ruler, **live Call room** (transcript in the patient's language + English, pill/plate check verdicts), "How she's doing" check-in with quotes and camera observations, alerts, 7-day chart, demo controls |
-| `/doctor` | Doctor | "Write this week's brief" → headline, adherence by medicine, mood trend, flagged moments with quotes, questions for the doctor; medicines table with **Change dose** dialog that notifies the family |
+| `/` | Everyone | Sign in: pick **Caregiver** or **Doctor** (demo sign-in, no password) |
+| `/caregiver` | Caregiver | Patient header (language badge), urgent red-alert banner (FaceTime / Call 911 / I'm handling it), **this week's pill box**: 7 days × morning/midday/evening compartments whose lids open when a dose is confirmed (taken, wrong pill caught, missed, due), the latest wrong-pill catch, next compartment + "Start check-in call", lids-opened count, **live Call room** (transcript in the patient's language + English, pill/plate check verdicts), check-in with quotes and camera observations, alerts, demo controls |
+| `/doctor` | Doctor | **Patient list**: every patient with % taken, a 7-day strip, open alerts; patients who need a look sort first; search by name |
+| `/doctor/[patientId]` | Doctor | One patient's week: compact pill box, adherence by medicine, mood trend, flagged moments, "Write this week's brief" (summary + questions for the doctor), quotes with English, medicines with **Change dose** dialog that notifies the family |
 | `/onboard` | Caregiver / doctor | 3 steps: patient details (30 Gemini Live languages) + consent → medicines from a **label photo** (AI-read, editable) + pill reference photo → review and start |
+
+Mock mode has four fictional patients for the doctor list (Rose is the live demo patient; scripted calls play on her).
 
 ## Mock mode vs live API
 

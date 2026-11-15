@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import "./globals.css";
-import { Shell } from "@/components/shell";
 
 export const metadata: Metadata = {
   title: "PillPal — care, one FaceTime away",
@@ -14,7 +13,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body>
-        <Shell>{children}</Shell>
+        {children}
         <Toaster position="bottom-right" toastOptions={{ style: { fontFamily: "var(--font-sans)", fontSize: 15 } }} />
       </body>
     </html>

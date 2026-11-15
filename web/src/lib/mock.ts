@@ -30,9 +30,11 @@ type State = {
   calls: Call[];
   callFeed: CallEvent[];
   history: DayHistory[];
+  /** Dose events for the 6 days before today (today's live doses are in `doses`). */
+  pastWeek: DoseEvent[];
 };
 
-function seed(): State {
+function seedRose(): State {
   const patient: Patient = {
     id: DEMO_PATIENT_ID,
     name: "Rose Martínez",
@@ -93,39 +95,54 @@ function seed(): State {
   const calls: Call[] = [
     { id: "call-morning", patient_id: patient.id, kind: "check_in", language: "es-US", started_at: at("07:30"), ended_at: at("07:36"), chert_call_id: null, room_name: null, transcript: null },
   ];
-  const moods = [4, 3, 3, 4, 2, 4, 4];
-  const takenPct = [1, 1, 0.75, 0.75, 1, 0.75, 1];
-  const history = Array.from({ length: 7 }, (_, i) => {
-    const d = today();
-    d.setDate(d.getDate() - (6 - i));
-    return {
-      day: d.toLocaleDateString("en-US", { weekday: "short" }),
-      taken: Math.round(takenPct[i] * 4),
-      total: 4,
-      mood: moods[i],
-    };
+  const pastWeek = buildPastWeek(patient.id, meds, {
+    "-4|med-lisi|13:00": "wrong_pill_caught",
+    "-3|med-metf|18:30": "missed",
+    "-2|med-metf|18:30": "missed",
   });
-  return { patient, meds, doses, alerts, checkins, calls, callFeed: [], history };
+  const history = historyFrom([...pastWeek, ...doses], [4, 3, 3, 4, 2, 4, 4]);
+  return { patient, meds, doses, alerts, checkins, calls, callFeed: [], history, pastWeek };
 }
 
-let state: State | null = null;
+let states: Map<string, State> | null = null;
+let roster: State[] | null = null;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
+function all(): Map<string, State> {
+  if (!states) {
+    states = new Map();
+    for (const st of [seedRose(), ...OTHER_PATIENTS.map(seedOther)]) states.set(st.patient.id, st);
+  }
+  return states;
+}
+
+/** The live demo patient (Rose): every scripted call, reminder and alert plays on her. */
 export function getState(): State {
-  if (!state) state = seed();
-  return state;
+  return all().get(DEMO_PATIENT_ID)!;
+}
+/** Any patient's state; undefined for an unknown id. Stable between changes (safe as a store snapshot). */
+export function getStateFor(id: string): State | undefined {
+  return all().get(id);
+}
+/** Every patient, for the doctor's list. Stable between changes. */
+export function getAll(): State[] {
+  if (!roster) roster = [...all().values()];
+  return roster;
 }
 export function subscribe(fn: () => void) {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
-function set(mut: (s: State) => void) {
-  const s = getState();
+function setFor(id: string, mut: (s: State) => void) {
+  const s = all().get(id);
+  if (!s) return;
   mut(s);
-  state = { ...s };
+  all().set(id, { ...s });
+  roster = null;
   emit();
 }
+const set = (mut: (s: State) => void) => setFor(DEMO_PATIENT_ID, mut);
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let running = false;
@@ -247,7 +264,9 @@ export function acknowledgeAlert(id: string) {
 }
 
 export function updateMedication(id: string, patch: { strength?: string; dose?: string; times?: string[]; active?: boolean }) {
-  set((s) => {
+  const owner = getAll().find((st) => st.meds.some((m) => m.id === id));
+  if (!owner) return;
+  setFor(owner.patient.id, (s) => {
     s.meds = s.meds.map((m) => (m.id === id ? { ...m, ...patch } : m));
   });
 }
@@ -274,32 +293,27 @@ export async function mockDescribePill(): Promise<string> {
   return "Small round white tablet, imprint “AN 5”";
 }
 
-export async function mockBrief(): Promise<Brief> {
+export async function mockBrief(patientId: string = DEMO_PATIENT_ID): Promise<Brief> {
   await wait(1700);
-  const s = getState();
+  const s = getStateFor(patientId) ?? getState();
+  const week = [...s.pastWeek, ...s.doses];
+  const due = week.filter((d) => d.status !== "pending");
+  const taken = due.filter((d) => d.status === "taken").length;
+  const missed = due.filter((d) => d.status === "missed").length;
+  const caught = week.filter((d) => d.status === "wrong_pill_caught").length;
+  const notes = BRIEF_NOTES[s.patient.id];
   return {
     patient_id: s.patient.id,
     week_start: at("00:00", -6).slice(0, 10),
-    adherence_pct: 89,
-    doses_taken: 25,
-    doses_missed: 2,
-    wrong_pills_caught: 1,
+    adherence_pct: due.length ? Math.round((taken / due.length) * 100) : 100,
+    doses_taken: taken,
+    doses_missed: missed,
+    wrong_pills_caught: caught,
     mood_trend: s.history.map((h) => h.mood),
-    symptoms: [
-      { name: "Mild knee pain", severity: "2/5", quote: "Me duele un poco la rodilla." },
-      { name: "Dizzy when standing", severity: "3/5", quote: "Me mareé un poquito al pararme." },
-    ],
-    quotes: [
-      { original: "Se me olvidó después de cenar.", english: "I forgot after dinner." },
-      { original: "Me mareé un poquito al pararme.", english: "I got a little dizzy when I stood up." },
-    ],
-    concerns: [
-      "Evening Metformin missed twice (Wed, Thu); consider moving it to lunch or adding a second reminder.",
-      "One report of dizziness on standing while on Lisinopril 10 mg; worth a blood-pressure check.",
-      "Lisinopril has 4 tablets left; refill needed this week.",
-    ],
-    summary:
-      "Rose took 89% of doses this week. Evening Metformin is the weak spot, and one wrong-pill moment was caught on camera before she took it.",
+    symptoms: notes?.symptoms ?? [],
+    quotes: notes?.quotes ?? [],
+    concerns: notes?.concerns ?? ["No concerns this week."],
+    summary: notes?.summary ?? `${s.patient.preferred_name} took ${taken} of ${due.length} doses this week.`,
   };
 }
 
@@ -307,3 +321,187 @@ export async function mockDoseChange(medicationId: string, newDose: string) {
   await wait(1200);
   updateMedication(medicationId, { strength: newDose });
 }
+
+// ---------------------------------------------------------------------------
+// Week history + the doctor's other patients (fictional demo people).
+
+type Override = "missed" | "wrong_pill_caught" | "pending";
+
+/** One dose event per medicine time for the 6 days before today. Keys look like "-3|med-id|18:30". */
+function buildPastWeek(patientId: string, meds: Medication[], overrides: Record<string, Override>): DoseEvent[] {
+  const out: DoseEvent[] = [];
+  let n = 0;
+  for (let off = -6; off <= -1; off++) {
+    for (const m of meds) {
+      for (const t of m.times) {
+        const status = (overrides[`${off}|${m.id}|${t}`] ?? "taken") as DoseEvent["status"];
+        out.push({
+          id: `${patientId}-w${off}-${m.id}-${t}`,
+          medication_id: m.id,
+          patient_id: patientId,
+          scheduled_at: at(t, off),
+          status,
+          confirmed_via: status === "taken" ? (n++ % 3 === 1 ? "tapback" : "facetime") : null,
+          created_at: at(t, off),
+          chert_message_id: null,
+          evidence_jpeg_url: null,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** Today's doses: taken if the time has passed (unless overridden), due otherwise. */
+function buildToday(patientId: string, meds: Medication[], overrides: Record<string, Override>): DoseEvent[] {
+  const now = Date.now();
+  return meds.flatMap((m) =>
+    m.times.map((t) => {
+      const when = at(t);
+      const status = (overrides[`0|${m.id}|${t}`] ?? (new Date(when).getTime() < now ? "taken" : "pending")) as DoseEvent["status"];
+      return {
+        id: `${patientId}-t-${m.id}-${t}`,
+        medication_id: m.id,
+        patient_id: patientId,
+        scheduled_at: when,
+        status,
+        confirmed_via: status === "taken" ? "facetime" : null,
+        created_at: when,
+        chert_message_id: null,
+        evidence_jpeg_url: null,
+      };
+    }),
+  );
+}
+
+function historyFrom(week: DoseEvent[], moods: number[]): DayHistory[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = today();
+    d.setDate(d.getDate() - (6 - i));
+    const day = week.filter((x) => new Date(x.scheduled_at).toDateString() === d.toDateString());
+    return {
+      day: d.toLocaleDateString("en-US", { weekday: "short" }),
+      taken: day.filter((x) => x.status === "taken").length,
+      total: day.length,
+      mood: moods[i] ?? 0,
+    };
+  });
+}
+
+interface OtherPatient {
+  patient: Omit<Patient, "consent_at" | "created_at" | "care_chat_id" | "meal_times" | "address">;
+  meds: { id: string; drug: string; strength: string; times: string[]; food_rule: Medication["food_rule"]; pill: string; left: number }[];
+  overrides: Record<string, Override>;
+  moods: number[];
+  alert?: { level: Alert["level"]; reason: string; summary: string; offset: number; open: boolean };
+  checkin: { mood: number; summary: string; quote: { original: string; english: string }; offset: number; risk: string };
+}
+
+const OTHER_PATIENTS: OtherPatient[] = [
+  {
+    patient: {
+      id: "harold-0002", name: "Harold Kim", preferred_name: "Harold", phone: "+1 (817) 555-0167", language: "ko-KR",
+      caregiver_name: "Grace", caregiver_phone: "+1 (817) 555-0199", doctor_name: "Dr. Priya Patel",
+    },
+    meds: [
+      { id: "med-h-amlo", drug: "Amlodipine", strength: "5 mg", times: ["08:00"], food_rule: "none", pill: "Small white octagon, imprint “AN 5”", left: 17 },
+      { id: "med-h-ator", drug: "Atorvastatin", strength: "20 mg", times: ["21:00"], food_rule: "none", pill: "White oval, imprint “PD 155”", left: 9 },
+    ],
+    overrides: { "-6|med-h-ator|21:00": "missed", "-4|med-h-ator|21:00": "missed", "-3|med-h-ator|21:00": "missed", "-1|med-h-ator|21:00": "missed" },
+    moods: [3, 3, 2, 3, 2, 3, 3],
+    alert: { level: "orange", reason: "Bedtime Atorvastatin missed 4 of the last 6 nights", summary: "Harold says he falls asleep before the 9 pm call.", offset: -1, open: true },
+    checkin: { mood: 3, summary: "Harold was tired but cheerful. Morning Amlodipine taken on camera.", quote: { original: "밤에는 너무 졸려서 잊어버려요.", english: "I get so sleepy at night that I forget." }, offset: 0, risk: "yellow" },
+  },
+  {
+    patient: {
+      id: "maggie-0003", name: "Margaret O'Neill", preferred_name: "Maggie", phone: "+1 (682) 555-0123", language: "en-US",
+      caregiver_name: "Tom", caregiver_phone: "+1 (682) 555-0177", doctor_name: "Dr. Priya Patel",
+    },
+    meds: [
+      { id: "med-m-warf", drug: "Warfarin", strength: "5 mg", times: ["17:00"], food_rule: "none", pill: "Peach round tablet, imprint “5”", left: 24 },
+      { id: "med-m-done", drug: "Donepezil", strength: "10 mg", times: ["21:00"], food_rule: "none", pill: "Yellow round tablet, imprint “ARICEPT 10”", left: 30 },
+    ],
+    overrides: {},
+    moods: [4, 5, 4, 4, 5, 4, 5],
+    checkin: { mood: 5, summary: "Maggie was chatty and sharp. Both evening pills taken on camera every day.", quote: { original: "Pal, you're more reliable than my alarm clock.", english: "Pal, you're more reliable than my alarm clock." }, offset: -1, risk: "green" },
+  },
+  {
+    patient: {
+      id: "bao-0004", name: "Bao Nguyen", preferred_name: "Bao", phone: "+1 (214) 555-0145", language: "vi-VN",
+      caregiver_name: "Linh", caregiver_phone: "+1 (214) 555-0181", doctor_name: "Dr. Priya Patel",
+    },
+    meds: [
+      { id: "med-b-losa", drug: "Losartan", strength: "50 mg", times: ["08:00"], food_rule: "none", pill: "Green oval tablet, imprint “L 50”", left: 12 },
+      { id: "med-b-metf", drug: "Metformin", strength: "1000 mg", times: ["08:00", "18:00"], food_rule: "with_food", pill: "White oblong tablet, imprint “G 45”", left: 40 },
+    ],
+    overrides: { "-5|med-b-metf|18:00": "wrong_pill_caught", "0|med-b-losa|08:00": "wrong_pill_caught" },
+    moods: [4, 4, 3, 4, 4, 3, 4],
+    alert: { level: "yellow", reason: "Wrong pill caught twice this week", summary: "Bao picked up Metformin instead of Losartan this morning. Pal caught it on camera.", offset: 0, open: false },
+    checkin: { mood: 4, summary: "Bao mixed up the two white-ish pills again; Pal pointed out the green one.", quote: { original: "Hai viên thuốc trông giống nhau quá.", english: "The two pills look so alike." }, offset: 0, risk: "yellow" },
+  },
+];
+
+function seedOther(o: OtherPatient): State {
+  const patient: Patient = { ...o.patient, meal_times: {}, address: null, consent_at: at("09:00", -20), care_chat_id: null, created_at: at("09:00", -20) };
+  const meds: Medication[] = o.meds.map((m) => ({
+    id: m.id, patient_id: patient.id, drug: m.drug, strength: m.strength, dose: "1 tablet", times: m.times, food_rule: m.food_rule,
+    avoid_foods: [], pills_left: m.left, refill_info: null, pill_description: m.pill, reference_photo_url: null, active: true,
+    confirmed_by: patient.caregiver_name, created_at: at("09:00", -20),
+  }));
+  const pastWeek = buildPastWeek(patient.id, meds, o.overrides);
+  const doses = buildToday(patient.id, meds, o.overrides);
+  const alerts: Alert[] = o.alert
+    ? [{
+        id: `a-${patient.id}`, patient_id: patient.id, level: o.alert.level, reason: o.alert.reason, summary: o.alert.summary,
+        sent_to: patient.caregiver_name, created_at: at("09:00", o.alert.offset), acknowledged_at: o.alert.open ? null : at("09:30", o.alert.offset),
+      }]
+    : [];
+  const checkins: CheckIn[] = [{
+    id: `c-${patient.id}`, call_id: null, patient_id: patient.id, mood: o.checkin.mood, risk_level: o.checkin.risk, summary: o.checkin.summary,
+    symptoms: [], visual_notes: [], quotes: [o.checkin.quote], created_at: at("08:10", o.checkin.offset),
+  }];
+  return { patient, meds, doses, alerts, checkins, calls: [], callFeed: [], history: historyFrom([...pastWeek, ...doses], o.moods), pastWeek };
+}
+
+const BRIEF_NOTES: Record<string, Pick<Brief, "summary" | "concerns" | "quotes" | "symptoms">> = {
+  [DEMO_PATIENT_ID]: {
+    summary: "Mostly on track. Evening Metformin is the weak spot, and one wrong pill was caught on camera before she took it.",
+    concerns: [
+      "Evening Metformin missed twice in a row; consider moving it to lunch or adding a second reminder.",
+      "One report of dizziness on standing while on Lisinopril 10 mg; worth a blood-pressure check.",
+      "Lisinopril has 4 tablets left; refill needed this week.",
+    ],
+    quotes: [
+      { original: "Se me olvidó después de cenar.", english: "I forgot after dinner." },
+      { original: "Me mareé un poquito al pararme.", english: "I got a little dizzy when I stood up." },
+    ],
+    symptoms: [
+      { name: "Mild knee pain", severity: "2/5", quote: "Me duele un poco la rodilla." },
+      { name: "Dizzy when standing", severity: "3/5", quote: "Me mareé un poquito al pararme." },
+    ],
+  },
+  "harold-0002": {
+    summary: "Mornings are solid; the 9 pm Atorvastatin is missed most nights because Harold is asleep by then.",
+    concerns: [
+      "Atorvastatin missed 4 of 6 nights; it can be taken in the morning with Amlodipine instead.",
+      "Seems tired on most calls; worth asking about sleep.",
+    ],
+    quotes: [{ original: "밤에는 너무 졸려서 잊어버려요.", english: "I get so sleepy at night that I forget." }],
+    symptoms: [{ name: "Daytime tiredness", severity: "2/5", quote: "요즘 좀 피곤해요." }],
+  },
+  "maggie-0003": {
+    summary: "Every dose taken on time, confirmed on camera. Mood is high and her memory on calls is steady.",
+    concerns: ["No missed doses. Next INR check is due for the Warfarin."],
+    quotes: [{ original: "Pal, you're more reliable than my alarm clock.", english: "Pal, you're more reliable than my alarm clock." }],
+    symptoms: [],
+  },
+  "bao-0004": {
+    summary: "Doses are taken, but Bao mixes up Losartan and Metformin; Pal caught the wrong pill twice this week.",
+    concerns: [
+      "Two look-alike tablets caused 2 wrong-pill moments; a pill organizer or a different-coloured brand could help.",
+      "Otherwise adherence is good and blood sugar complaints are absent.",
+    ],
+    quotes: [{ original: "Hai viên thuốc trông giống nhau quá.", english: "The two pills look so alike." }],
+    symptoms: [],
+  },
+};

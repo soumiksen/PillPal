@@ -1,22 +1,79 @@
 "use client";
+import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardPlus, HeartPulse, House, Stethoscope } from "lucide-react";
+import { ClipboardPlus, LogOut, PillBottle, Users } from "lucide-react";
 import { Wordmark } from "./brand";
 import { cn } from "./ui";
 import { USE_MOCKS } from "@/lib/api";
 
-const NAV = [
-  { href: "/", label: "Home", Icon: House, exact: true },
-  { href: "/caregiver", label: "Today's care", short: "Today", Icon: HeartPulse },
-  { href: "/doctor", label: "Doctor review", short: "Doctor", Icon: Stethoscope },
+type NavItem = { href: string; label: string; short?: string; Icon: typeof Users };
+
+const CAREGIVER_NAV: NavItem[] = [
+  { href: "/caregiver", label: "Pill box", short: "Pill box", Icon: PillBottle },
+  { href: "/onboard", label: "Set up a patient", short: "Set up", Icon: ClipboardPlus },
+];
+const DOCTOR_NAV: NavItem[] = [
+  { href: "/doctor", label: "My patients", short: "Patients", Icon: Users },
   { href: "/onboard", label: "Set up a patient", short: "Set up", Icon: ClipboardPlus },
 ];
 
-export function Shell({ children }: { children: React.ReactNode }) {
+/** Reads the URL, so it sits inside <Suspense>: pages with an unknown dynamic param (like /doctor/[patientId]) resolve it at request time. */
+function useNav() {
   const path = usePathname() ?? "/";
-  const isActive = (n: (typeof NAV)[number]) => (n.exact ? path === n.href : path.startsWith(n.href));
+  const doctor = path.startsWith("/doctor");
+  return { nav: doctor ? DOCTOR_NAV : CAREGIVER_NAV, role: doctor ? "Doctor" : "Caregiver", isActive: (n: NavItem) => path.startsWith(n.href) };
+}
 
+function SideNav() {
+  const { nav, role, isActive } = useNav();
+  return (
+    <nav aria-label="Main" className="flex flex-col py-4">
+      <p className="px-6 pb-2 text-[15px] font-bold text-ink">{role} menu</p>
+      {nav.map((n) => {
+        const active = isActive(n);
+        return (
+          <Link
+            key={n.href}
+            href={n.href}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "relative flex items-center gap-3 px-6 py-3.5 text-[16px] font-semibold transition-colors",
+              active ? "bg-mist/70 text-ink" : "text-ink-faint hover:bg-mist/50 hover:text-ink",
+            )}
+          >
+            <n.Icon className={cn("size-5", active ? "text-ink" : "text-ink-faint")} aria-hidden />
+            {n.label}
+            {active ? <span className="absolute right-0 top-1/2 h-9 w-[5px] -translate-y-1/2 rounded-l-full bg-lime-deep" aria-hidden /> : null}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+function TopNav() {
+  const { nav, isActive } = useNav();
+  return (
+    <>
+      {nav.map((n) => {
+        const active = isActive(n);
+        return (
+          <Link
+            key={n.href}
+            href={n.href}
+            aria-current={active ? "page" : undefined}
+            className={cn("whitespace-nowrap rounded-full px-3 py-2 text-[15px] font-semibold", active ? "bg-char text-white" : "text-ink-soft hover:bg-paper")}
+          >
+            {n.short ?? n.label}
+          </Link>
+        );
+      })}
+    </>
+  );
+}
+
+export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-dvh p-0 lg:p-4">
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-paper focus:px-4 focus:py-2">
@@ -27,27 +84,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <div className="border-b border-line px-6 py-6">
             <Wordmark />
           </div>
-          <nav aria-label="Main" className="flex flex-col py-4">
-            <p className="px-6 pb-2 text-[15px] font-bold text-ink">Menu</p>
-            {NAV.map((n) => {
-              const active = isActive(n);
-              return (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "relative flex items-center gap-3 px-6 py-3.5 text-[16px] font-semibold transition-colors",
-                    active ? "bg-mist/70 text-ink" : "text-ink-faint hover:bg-mist/50 hover:text-ink",
-                  )}
-                >
-                  <n.Icon className={cn("size-5", active ? "text-ink" : "text-ink-faint")} aria-hidden />
-                  {n.label}
-                  {active ? <span className="absolute right-0 top-1/2 h-9 w-[5px] -translate-y-1/2 rounded-l-full bg-lime-deep" aria-hidden /> : null}
-                </Link>
-              );
-            })}
-          </nav>
+          <Suspense fallback={<div className="h-[150px]" />}>
+            <SideNav />
+          </Suspense>
+          <Link href="/" className="mx-6 mt-2 inline-flex items-center gap-2 text-[15px] font-semibold text-ink-faint hover:text-ink">
+            <LogOut className="size-4" aria-hidden /> Switch role
+          </Link>
           <div className="mt-auto p-4">
             <div className="relative overflow-hidden rounded-[22px] bg-mist p-5">
               <PillDoodles />
@@ -65,19 +107,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line bg-mist/90 px-4 py-3 backdrop-blur-md lg:hidden">
           <Wordmark />
           <nav aria-label="Main" className="flex items-center gap-1">
-            {NAV.filter((n) => !n.exact).map((n) => {
-              const active = isActive(n);
-              return (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  aria-current={active ? "page" : undefined}
-                  className={cn("whitespace-nowrap rounded-full px-3 py-2 text-[15px] font-semibold", active ? "bg-char text-white" : "text-ink-soft hover:bg-paper")}
-                >
-                  {n.short ?? n.label}
-                </Link>
-              );
-            })}
+            <Suspense fallback={null}>
+              <TopNav />
+            </Suspense>
+            <Link href="/" aria-label="Switch role" className="rounded-full p-2 text-ink-soft hover:bg-paper">
+              <LogOut className="size-4" aria-hidden />
+            </Link>
           </nav>
         </header>
 
