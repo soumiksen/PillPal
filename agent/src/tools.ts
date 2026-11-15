@@ -18,6 +18,8 @@ export interface CallState {
   wrongLogged: Set<string>;
   escalated: boolean;
   ended: boolean;
+  /** web: our call apps (the caregiver joins this room); facetime: Chert bridge. */
+  transport: "web" | "facetime";
   lastFrameB64?: string;
   finish: () => Promise<void>; // end the call (idempotent)
   /** Visual-only hook for the avatar; must never affect tool behaviour. */
@@ -29,10 +31,15 @@ export interface CallState {
 const log = (s: CallState, e: Omit<VisionEvent, "at">) => s.visionEvents.push({ at: new Date().toISOString(), ...e });
 
 /** Raise the red alert + caregiver call via the API. Idempotent per call. Used by the escalate_now tool and the keyword trigger. */
-export async function escalateNow(s: CallState, reason: string, summary: string): Promise<{ ok: boolean; group_call: boolean; already: boolean }> {
+export async function escalateNow(
+  s: CallState,
+  reason: string,
+  summary: string,
+  requestedBy?: "patient" | "pal",
+): Promise<{ ok: boolean; group_call: boolean; already: boolean }> {
   if (s.escalated) return { ok: true, group_call: false, already: true };
   s.escalated = true;
-  const r = await api.escalate({ patient_id: s.patientId, room_name: s.roomName, reason, summary });
+  const r = await api.escalate({ patient_id: s.patientId, room_name: s.roomName, reason, summary, requested_by: requestedBy });
   return { ok: true, group_call: r.group_call_id !== null, already: false };
 }
 
@@ -150,16 +157,23 @@ export function buildTools(s: CallState) {
 
     escalate_now: llm.tool({
       description:
-        "EMERGENCY/concern: chest pain, a fall, trouble breathing, confusion, dizziness, or a double dose. Call immediately, then reassure the patient their caregiver is joining. Never call 911 yourself.",
+        "Bring the caregiver into the call: the patient asked for them (any words, any language), or chest pain, a fall, trouble breathing, confusion, dizziness, or a double dose. Never call 911 yourself.",
       parameters: z.object({
         reason: z.string().describe("short factual reason"),
         summary: z.string().describe("1–2 sentence English summary for the caregiver"),
+        requested_by: z.enum(["patient", "pal"]).optional().describe('"patient" when the patient asked for their caregiver; "pal" for a red flag'),
       }),
-      execute: async ({ reason, summary }) => {
-        // The backend ends this call right away, so let Pal finish saying what she is about to do first.
-        await s.waitUntilIdle?.(9000);
-        const r = await escalateNow(s, reason, summary);
+      execute: async ({ reason, summary, requested_by }) => {
+        // FaceTime: the backend ends this call right away, so let Pal finish her sentence first.
+        if (s.transport === "facetime") await s.waitUntilIdle?.(9000);
+        const r = await escalateNow(s, reason, summary, requested_by);
         if (r.already) return { ok: true, say: "Caregiver already notified. Keep reassuring the patient." };
+        if (s.transport === "web") {
+          return {
+            ok: true,
+            say: `${s.ctx.patient.caregiver_name ?? "The caregiver"}'s phone is ringing and they will join this call. Stay with the patient and keep them company calmly. Do not end the call.`,
+          };
+        }
         return {
           ok: true,
           group_call: r.group_call,

@@ -1,9 +1,20 @@
 /**
- * Latest-frame grabber for the caller's camera (Chert bridge track `facetime-remote-video`).
+ * Latest-frame grabber for the patient's camera: the Chert bridge track `facetime-remote-video`, or (web calls) the
+ * camera of the patient-web-* participant. The caregiver's camera is never used for pill or plate checks.
  * Keeps only the newest frame + timestamp; grabFrame() → 512 px JPEG base64, or "camera_off"
  * when there is no fresh frame (older than 1.5 s) or the track is muted/unsubscribed.
  */
-import { RemoteTrackPublication, RoomEvent, TrackKind, VideoBufferType, VideoStream, type Room, type VideoFrame } from "@livekit/rtc-node";
+import {
+  RemoteTrackPublication,
+  RoomEvent,
+  TrackKind,
+  TrackSource,
+  VideoBufferType,
+  VideoStream,
+  type RemoteParticipant,
+  type Room,
+  type VideoFrame,
+} from "@livekit/rtc-node";
 import sharp from "sharp";
 
 export const VIDEO_TRACK_NAME = "facetime-remote-video";
@@ -17,32 +28,30 @@ export class FrameGrabber {
   private muted = false;
   private stream?: VideoStream;
   private gen = 0;
+  private trackSid?: string;
 
   /** Register handlers BEFORE room.connect so an already-published track is not missed. */
   attach(room: Room): void {
-    room.on(RoomEvent.TrackSubscribed, (track, pub) => {
-      if (track.kind !== TrackKind.KIND_VIDEO || !this.isCallerVideo(pub)) return;
+    room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
+      if (track.kind !== TrackKind.KIND_VIDEO || !isCallerVideo(pub, participant)) return;
       this.muted = Boolean(pub.muted);
+      this.trackSid = pub.sid;
       void this.consume(new VideoStream(track));
     });
-    room.on(RoomEvent.TrackUnsubscribed, (track) => {
-      if (track.kind === TrackKind.KIND_VIDEO) this.reset();
+    room.on(RoomEvent.TrackUnsubscribed, (track, pub) => {
+      if (track.kind === TrackKind.KIND_VIDEO && pub.sid === this.trackSid) this.reset();
     });
     room.on(RoomEvent.TrackMuted, (pub) => {
-      if (pub.kind === TrackKind.KIND_VIDEO) this.muted = true;
+      if (pub.kind === TrackKind.KIND_VIDEO && pub.sid === this.trackSid) this.muted = true;
     });
     room.on(RoomEvent.TrackUnmuted, (pub) => {
-      if (pub.kind === TrackKind.KIND_VIDEO) this.muted = false;
+      if (pub.kind === TrackKind.KIND_VIDEO && pub.sid === this.trackSid) this.muted = false;
     });
-  }
-
-  private isCallerVideo(pub: RemoteTrackPublication): boolean {
-    // Only the bridge's remote-video track; ignore Pal's own face or other video.
-    return pub.name === VIDEO_TRACK_NAME || pub.name === "" || pub.name === undefined;
   }
 
   private reset() {
     this.gen++;
+    this.trackSid = undefined;
     this.stream = undefined;
     this.latest = undefined;
   }
@@ -78,4 +87,12 @@ export class FrameGrabber {
       .toBuffer();
     return { ok: true, jpegB64: jpeg.toString("base64") };
   }
+}
+
+/** The patient's camera: web app (patient-web-*, camera source) or the Chert bridge's remote-video track. */
+export function isCallerVideo(pub: Pick<RemoteTrackPublication, "name" | "source">, participant?: Pick<RemoteParticipant, "identity">): boolean {
+  const id = participant?.identity ?? "";
+  if (id.startsWith("caregiver-web-")) return false;
+  if (id.startsWith("patient-web-")) return pub.source === TrackSource.SOURCE_CAMERA || pub.source === undefined;
+  return pub.name === VIDEO_TRACK_NAME || pub.name === "" || pub.name === undefined;
 }

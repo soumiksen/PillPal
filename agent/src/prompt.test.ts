@@ -32,3 +32,13 @@ test("emergency rule gives Pal the exact hold sentence and tells her to escalate
   assert.match(p, /Keep your phone in your hand\. I am cutting this call and calling you along with your caregiver\./);
   assert.match(p, /call escalate_now/);
 });
+
+test("web calls: Pal says the caregiver is joining, escalates and stays in the call", () => {
+  const p = buildInstructions(ctx, { transport: "web" });
+  assert.match(p, /"Anna is joining us now\."/);
+  assert.match(p, /requested_by "patient"/);
+  assert.match(p, /Do not end the call/);
+  assert.match(p, /two-sentence summary/);
+  assert.doesNotMatch(p, /cutting this call/);
+  assert.match(buildInstructions(ctx, { transport: "web", extraCaregiver: true }), /URGENT CALL/);
+});
