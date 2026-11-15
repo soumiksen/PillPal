@@ -15,11 +15,11 @@ import { startOfZonedDay, zonedDate } from "../lib/time.js";
 
 export const reports = new Hono();
 
-/** Web: gather the last 7 days (America/Chicago days, today included) → ai.weeklyBrief → reports row → Brief. */
+/** Web: gather the last 7 days (7 full America/Chicago days plus today so far) → ai.weeklyBrief → reports row → Brief. */
 reports.post("/generate", async (c) => {
   const { patient_id } = await jsonBody(c, GenerateReportBody);
   const patient = await getPatient(patient_id);
-  const from = startOfZonedDay(new Date(Date.now() - 6 * 86_400_000));
+  const from = startOfZonedDay(new Date(Date.now() - 7 * 86_400_000));
   const d = zonedDate(from);
   const week_start = `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
   const since = from.toISOString();
