@@ -28,6 +28,8 @@ export const RingEvent = z.object({
   room_name: z.string(),
   kind: WebCallKind,
   from: z.string(),
+  /** Display names for tiles (the apps cannot read the DB). */
+  names: z.object({ patient: z.string().optional(), caregiver: z.string().optional() }).optional(),
 });
 export type RingEvent = z.infer<typeof RingEvent>;
 
@@ -63,6 +65,10 @@ export const CallTokenBody = z.object({
   role: CallRole,
   room_name: z.string().min(1).max(128),
   code: z.string().min(1).max(200),
+  /** Shown under the tile and to Pal (e.g. "Rose", "Maya"). */
+  name: z.string().max(60).optional(),
+  /** Only verify the access code (first-run setup); no token is minted. */
+  check: z.boolean().optional(),
 });
 export type CallTokenBody = z.infer<typeof CallTokenBody>;
 

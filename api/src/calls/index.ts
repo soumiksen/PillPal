@@ -28,8 +28,9 @@ const store: CallStore = {
   async markEnded(callId) {
     must("mark call ended", await db.from("calls").update({ ended_at: new Date().toISOString() }).eq("id", callId).is("ended_at", null));
   },
-  async callerName(patientId) {
-    return displayName(await getPatient(patientId), "Your loved one");
+  async names(patientId) {
+    const p = await getPatient(patientId);
+    return { patient: displayName(p, "Your loved one"), caregiver: p.caregiver_name ?? undefined };
   },
 };
 

@@ -12,7 +12,7 @@ import { useRouter } from "next/navigation";
 type NavItem = { href: string; label: string; short?: string; Icon: typeof Users };
 
 const CAREGIVER_NAV: NavItem[] = [
-  { href: "/caregiver", label: "Pill box", short: "Pill box", Icon: PillBottle },
+  { href: "/dashboard", label: "Pill box", short: "Pill box", Icon: PillBottle },
   { href: "/onboard", label: "Set up a patient", short: "Set up", Icon: ClipboardPlus },
 ];
 const DOCTOR_NAV: NavItem[] = [

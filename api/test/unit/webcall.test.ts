@@ -37,8 +37,8 @@ function fakes() {
     async markEnded(id: string) {
       ended.push(id);
     },
-    async callerName() {
-      return "Rose";
+    async names() {
+      return { patient: "Rose", caregiver: "Maya" };
     },
   };
   const bus = new MemorySignalBus();
@@ -55,7 +55,7 @@ test("dial: room → dispatch {transport:web} → ring patient from Pal; second 
   assert.deepEqual(f.bus.sent[0], {
     role: "patient",
     event: "ring",
-    payload: { call_id: placed.call_id, room_name: placed.room_name, kind: "dose", from: "Pal" },
+    payload: { call_id: placed.call_id, room_name: placed.room_name, kind: "dose", from: "Pal", names: { patient: "Rose", caregiver: "Maya" } },
   });
   await assert.rejects(f.svc.dial(P, "check_in"), LineBusyError);
 });
@@ -85,7 +85,7 @@ test("accept → escalate rings the caregiver into the same room → both hang u
   assert.deepEqual(f.bus.sent.at(-1), {
     role: "caregiver",
     event: "ring",
-    payload: { call_id: placed.call_id, room_name: placed.room_name, kind: "check_in", from: "Rose" },
+    payload: { call_id: placed.call_id, room_name: placed.room_name, kind: "check_in", from: "Rose", names: { patient: "Rose", caregiver: "Maya" } },
   });
   f.bus.reply(P, "accepted", { call_id: placed.call_id, role: "caregiver" });
   f.people.get(placed.room_name)!.add("caregiver-web-1");

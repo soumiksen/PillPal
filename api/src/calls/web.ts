@@ -40,7 +40,8 @@ export interface CallStore {
   /** → calls.id */
   insertCall(row: { patient_id: string; kind: string; room_name: string }): Promise<string>;
   markEnded(callId: string): Promise<void>;
-  callerName(patientId: string): Promise<string>;
+  /** Patient and caregiver display names for the ring payload. */
+  names(patientId: string): Promise<{ patient: string; caregiver?: string }>;
 }
 
 export type WebLine = {
@@ -150,8 +151,8 @@ export class WebCallService {
       };
       this.line = line;
       console.log(`[webcall] dial kind=${kind} room=${room}`);
-      await this.ring(line, "patient", "Pal");
-      if (alsoCaregiver) await this.ring(line, "caregiver", await this.store.callerName(patientId));
+      await this.ring(line, "patient");
+      if (alsoCaregiver) await this.ring(line, "caregiver");
       this.startWatch(line);
       return { chert_call_id: null, room_name: room, call_id: callId };
     } finally {
@@ -170,7 +171,7 @@ export class WebCallService {
         console.log("[webcall] caregiver already in / being rung, not ringing again");
         return { room_name: line.room_name, new_call: false };
       }
-      await this.ring(line, "caregiver", await this.store.callerName(patientId));
+      await this.ring(line, "caregiver");
       return { room_name: line.room_name, new_call: false };
     }
     if (line) {
@@ -192,14 +193,17 @@ export class WebCallService {
     })();
   }
 
-  private async ring(line: WebLine, role: CallRole, from: string): Promise<void> {
+  private async ring(line: WebLine, role: CallRole): Promise<void> {
+    const names = await this.store.names(line.patient_id).catch(() => ({ patient: "Your loved one", caregiver: undefined }));
+    // The patient sees Pal calling; the caregiver sees the patient calling (Pal is in the call too).
+    const from = role === "patient" ? "Pal" : names.patient;
     const timeout = this.opts.ringTimeoutMs ?? RING_TIMEOUT_MS;
     clearTimeout(line.ringing.get(role));
     line.ringing.set(
       role,
       setTimeout(() => void this.ringTimedOut(line, role), timeout),
     );
-    await this.bus.ring(role, line.patient_id, { call_id: line.call_id, room_name: line.room_name, kind: line.kind, from });
+    await this.bus.ring(role, line.patient_id, { call_id: line.call_id, room_name: line.room_name, kind: line.kind, from, names });
   }
 
   private async stopRinging(line: WebLine, role: CallRole, sendCancel: boolean): Promise<void> {
@@ -250,6 +254,14 @@ export class WebCallService {
       if (this.line !== line || line.ending) return;
       const humans = (await this.lk.participants(line.room_name)).filter(isHuman);
       const now = Date.now();
+      // A phone that is in the room has answered, even if its `accepted` broadcast was lost.
+      for (const role of [...line.ringing.keys()]) {
+        if (humans.some((h) => h.startsWith(identityPrefix(role)))) {
+          await this.stopRinging(line, role, false);
+          line.inCall.set(role, now);
+          if (role === "patient") line.outcome = "answered";
+        }
+      }
       // Forget accepts whose phone never arrived.
       for (const [role, at] of line.inCall) {
         const there = humans.some((h) => h.startsWith(identityPrefix(role)));
