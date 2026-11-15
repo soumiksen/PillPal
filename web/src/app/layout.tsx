@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: "Caregiver and doctor portal for PillPal, the medication companion that checks in over FaceTime and iMessage.",
 };
 
-export const viewport: Viewport = { themeColor: "#F2F7F6" };
+export const viewport: Viewport = { themeColor: "#EEE3D2" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

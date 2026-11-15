@@ -77,16 +77,16 @@ const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hou
 
 const LOOK: Record<Exclude<CompartmentState, "empty">, { word: string; Icon: typeof Check; lid: string; tub: string; text: string; badge: string }> = {
   taken: { word: "Taken", Icon: Check, lid: "bg-ok", tub: "bg-ok-wash border-ok/30", text: "text-ok", badge: "bg-ok text-white" },
-  caught: { word: "Wrong pill caught", Icon: ShieldAlert, lid: "bg-[#F59E0B]", tub: "bg-caught-wash border-[#FCD34D]", text: "text-caught", badge: "bg-[#D97706] text-white" },
+  caught: { word: "Wrong pill caught", Icon: ShieldAlert, lid: "bg-[#C99A3B]", tub: "bg-caught-wash border-[#E3C27A]", text: "text-caught", badge: "bg-[#A87720] text-white" },
   missed: {
     word: "Missed",
     Icon: X,
     lid: "",
-    tub: "border-missed border-2 bg-[repeating-linear-gradient(135deg,#FCA5A5_0_8px,#FECACA_8px_16px)]",
+    tub: "border-missed border-2 bg-[repeating-linear-gradient(135deg,#E3A893_0_8px,#F2D2C5_8px_16px)]",
     text: "text-missed",
     badge: "bg-missed text-white",
   },
-  due: { word: "Due", Icon: Clock3, lid: "", tub: "bg-[linear-gradient(#E6EAE3,#D5DBD1)] border-transparent", text: "text-ink", badge: "bg-ink text-white" },
+  due: { word: "Due", Icon: Clock3, lid: "", tub: "bg-[linear-gradient(#E8DECB,#D8CCB6)] border-transparent", text: "text-ink", badge: "bg-ink text-white" },
 };
 
 function Via({ doses }: { doses: DoseEvent[] }) {
@@ -148,7 +148,7 @@ function Compartment({
       <div
         title={`${look.word} · ${names.join(", ")}`}
         aria-label={label}
-        className={cn("grid h-9 place-items-center rounded-[9px] border", look.tub, state === "taken" && "bg-ok border-ok", state === "caught" && "bg-[#F59E0B] border-[#F59E0B]")}
+        className={cn("grid h-9 place-items-center rounded-[9px] border", look.tub, state === "taken" && "bg-ok border-ok", state === "caught" && "bg-[#C99A3B] border-[#C99A3B]")}
       >
         <look.Icon className={cn("size-4", state === "taken" || state === "caught" ? "text-white" : look.text)} strokeWidth={3} aria-hidden />
       </div>
@@ -170,7 +170,7 @@ function Compartment({
         {closed ? (
           <span className="mt-0.5 flex gap-1" aria-hidden>
             {doses.map((d) => (
-              <span key={d.id} className="h-2.5 w-5 rounded-full border border-ink/10 bg-[linear-gradient(90deg,#fff_50%,#F9A8D4_50%)]" />
+              <span key={d.id} className="h-2.5 w-5 rounded-full border border-ink/10 bg-[linear-gradient(90deg,#fff_50%,#E8C97A_50%)]" />
             ))}
           </span>
         ) : null}
@@ -235,9 +235,9 @@ export function PillBox({ week, meds, compact = false, className }: { week: Dose
 export function PillBoxLegend() {
   const items: { cls: string; text: string; Icon: typeof Check }[] = [
     { cls: "bg-ok", text: "Taken: lid open, empty", Icon: Check },
-    { cls: "bg-[#F59E0B]", text: "Wrong pill caught on camera", Icon: ShieldAlert },
-    { cls: "border-2 border-missed bg-[repeating-linear-gradient(135deg,#FCA5A5_0_6px,#FECACA_6px_12px)]", text: "Missed: pills still inside", Icon: X },
-    { cls: "bg-[#D5DBD1]", text: "Due: lid closed", Icon: Clock3 },
+    { cls: "bg-[#C99A3B]", text: "Wrong pill caught on camera", Icon: ShieldAlert },
+    { cls: "border-2 border-missed bg-[repeating-linear-gradient(135deg,#E3A893_0_6px,#F2D2C5_6px_12px)]", text: "Missed: pills still inside", Icon: X },
+    { cls: "bg-[#D8CCB6]", text: "Due: lid closed", Icon: Clock3 },
   ];
   return (
     <ul className="grid gap-2.5 text-[15px]">

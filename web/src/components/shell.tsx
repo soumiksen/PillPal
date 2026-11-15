@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ClipboardPlus, LogOut, PillBottle, Users } from "lucide-react";
-import { Wordmark } from "./brand";
+import { Meander, Voyage, Wordmark } from "./brand";
 import { cn } from "./ui";
 import { USE_MOCKS } from "@/lib/api";
 import { signOut, useAccount } from "@/lib/account";
@@ -83,18 +83,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </a>
       <div className="mx-auto flex min-h-[calc(100dvh-2rem)] max-w-[1520px] flex-col gap-4 lg:flex-row">
         <aside className="sticky top-4 hidden h-[calc(100dvh-2rem)] w-[248px] shrink-0 flex-col rounded-[var(--radius-panel)] bg-paper lg:flex">
-          <div className="border-b border-line px-6 py-6">
+          <div className="px-6 pb-4 pt-6">
             <Wordmark />
           </div>
+          <Meander className="text-sea/60" />
           <Suspense fallback={<div className="h-[150px]" />}>
             <SideNav />
           </Suspense>
           <AccountBox />
           <div className="mt-auto p-4">
-            <div className="relative overflow-hidden rounded-[22px] bg-mist p-5">
-              <PillDoodles />
+            <div className="relative overflow-hidden rounded-[var(--radius-panel)] bg-char p-5 pb-16 text-mist">
+              <Voyage className="pointer-events-none absolute inset-x-0 bottom-0 h-16 w-full" />
               <p className="relative font-display text-xl leading-tight">Pal checks in on FaceTime</p>
-              <p className="relative mt-1 text-[15px] text-ink-soft">No app for the patient. Ever.</p>
+              <p className="relative mt-1 text-[15px] text-mist/75">No app for the patient. Ever.</p>
               {USE_MOCKS ? (
                 <p className="relative mt-3 inline-flex rounded-full bg-paper px-3 py-1 text-sm font-semibold text-ink-soft" title="Set NEXT_PUBLIC_USE_MOCKS=false to use the live API">
                   Showing demo data
@@ -160,12 +161,3 @@ function AccountBox() {
   );
 }
 
-function PillDoodles() {
-  return (
-    <svg viewBox="0 0 200 120" className="pointer-events-none absolute -bottom-6 -right-8 h-32 w-56 opacity-70" aria-hidden>
-      <rect x="110" y="20" width="70" height="28" rx="14" fill="#E2E6DF" transform="rotate(-30 145 34)" />
-      <rect x="70" y="70" width="60" height="24" rx="12" fill="#E2E6DF" transform="rotate(20 100 82)" />
-      <circle cx="170" cy="95" r="16" fill="#E2E6DF" />
-    </svg>
-  );
-}

@@ -122,11 +122,11 @@ export default function DoctorPatientPage() {
               <div className="mt-3 h-[190px]" role="img" aria-label={`Mood on each day's calls: ${moods.map((m) => m.mood ?? "no call").join(", ")}`}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={moods} margin={{ top: 10, right: 12, left: -26 }}>
-                    <CartesianGrid vertical={false} stroke="#E4E8E1" />
-                    <XAxis dataKey="day" tickLine={false} axisLine={false} tick={{ fill: "#737D70", fontSize: 13 }} />
-                    <YAxis domain={[1, 5]} ticks={[1, 3, 5]} tickLine={false} axisLine={false} tick={{ fill: "#737D70", fontSize: 12 }} />
-                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #E4E8E1" }} />
-                    <Line isAnimationActive={false} type="monotone" dataKey="mood" stroke="#3F6212" strokeWidth={3} dot={{ r: 4, fill: "#3F6212" }} connectNulls />
+                    <CartesianGrid vertical={false} stroke="#DED0BC" />
+                    <XAxis dataKey="day" tickLine={false} axisLine={false} tick={{ fill: "#5B6B76", fontSize: 13 }} />
+                    <YAxis domain={[1, 5]} ticks={[1, 3, 5]} tickLine={false} axisLine={false} tick={{ fill: "#5B6B76", fontSize: 12 }} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #DED0BC" }} />
+                    <Line isAnimationActive={false} type="monotone" dataKey="mood" stroke="#305873" strokeWidth={3} dot={{ r: 4, fill: "#305873" }} connectNulls />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -243,7 +243,7 @@ function FlagRow({ dose, med, name }: { dose: DoseEvent; med?: Medication; name:
   const caught = dose.status === "wrong_pill_caught";
   return (
     <li className={cn("flex items-start gap-3 rounded-[16px] p-3.5", caught ? "bg-caught-wash" : "bg-missed-wash")}>
-      <span className={cn("grid size-9 shrink-0 place-items-center rounded-full text-white", caught ? "bg-[#D97706]" : "bg-missed")}>
+      <span className={cn("grid size-9 shrink-0 place-items-center rounded-full text-white", caught ? "bg-[#A87720]" : "bg-missed")}>
         {caught ? <ShieldAlert className="size-4.5" aria-hidden /> : <X className="size-4.5" aria-hidden />}
       </span>
       <div>
