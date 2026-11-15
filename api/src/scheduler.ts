@@ -12,15 +12,17 @@ import { zonedDate, zonedTime } from "./lib/time.js";
 /** Same window the agent uses for "still due" (PENDING_LOOKBACK_MS in lib/data.ts). */
 const MISSED_AFTER_MS = 12 * 60 * 60_000;
 
-type MedSlotRow = { id: string; patient_id: string | null; times: string[] | null };
+type MedSlotRow = { id: string; patient_id: string | null; times: string[] | null; created_at: string };
 
 export async function ensureTodayDoses(now = new Date()): Promise<number> {
-  const meds = must("list active meds", await db.from("medications").select("id,patient_id,times").eq("active", true)) as MedSlotRow[];
+  const meds = must("list active meds", await db.from("medications").select("id,patient_id,times,created_at").eq("active", true)) as MedSlotRow[];
   const today = zonedDate(now);
   const slots = meds.flatMap((m) =>
     m.patient_id ? (m.times ?? []).flatMap((t) => {
       const at = zonedTime(today, t);
-      return at ? [{ medication_id: m.id, patient_id: m.patient_id!, at }] : [];
+      // No slot for a time that passed before the medicine was added: it was never due on PillPal.
+      if (!at || at.getTime() < new Date(m.created_at).getTime()) return [];
+      return [{ medication_id: m.id, patient_id: m.patient_id!, at }];
     }) : [],
   );
   if (slots.length === 0) return 0;
