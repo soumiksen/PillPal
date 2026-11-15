@@ -9,6 +9,13 @@
 
 create extension if not exists pgcrypto;
 
+-- sha256 of the key shaped as a v4 uuid (version nibble 4, variant 8–b) so z.string().uuid() accepts it.
+create or replace function pg_temp.seed_uuid(k text) returns uuid language sql immutable as $f$
+  select (substr(h, 1, 12) || '4' || substr(h, 14, 3)
+          || substr('89ab', (('x' || substr(h, 17, 1))::bit(4)::int & 3) + 1, 1) || substr(h, 18, 15))::uuid
+  from (select encode(digest(k, 'sha256'), 'hex') as h) s
+$f$;
+
 do $$
 declare
   pid uuid;
@@ -20,10 +27,30 @@ begin
     raise exception 'No patient named Rose: run npm run seed:patient first';
   end if;
 
+  -- rows from older versions of this seed (same keys, ids = raw md5 or raw sha256, which fail uuid validation)
+  create temp table seed_keys on commit drop as
+    select 'pillpal-seed:' || pid || ':dose:' || d || ':' || m.drug || ':' || t as k
+    from generate_series(1, 7) d, medications m, unnest(m.times) t
+    where m.patient_id = pid and m.active and m.drug in ('Levothyroxine', 'Metformin', 'Lisinopril')
+    union all select 'pillpal-seed:' || pid || ':call:' || n from generate_series(1, 6) n
+    union all select 'pillpal-seed:' || pid || ':checkin:' || n from generate_series(1, 6) n
+    union all select 'pillpal-seed:' || pid || ':alert:1'
+    union all select 'pillpal-seed:' || pid || ':memory:' || n from generate_series(1, 3) n;
+  create temp table seed_legacy on commit drop as
+    select md5(k)::uuid as id from seed_keys
+    union select encode(digest(k, 'sha256'), 'hex')::uuid from seed_keys
+    -- a raw sha256 can already look like a v4 uuid: keep current ids
+    except select pg_temp.seed_uuid(k) from seed_keys;
+  delete from check_ins   where patient_id = pid and id in (select id from seed_legacy);
+  delete from alerts      where patient_id = pid and id in (select id from seed_legacy);
+  delete from memories    where patient_id = pid and id in (select id from seed_legacy);
+  delete from dose_events where patient_id = pid and id in (select id from seed_legacy);
+  delete from calls       where patient_id = pid and id in (select id from seed_legacy);
+
   -- dose_events: every slot of every seeded med, days 1..7 ago
   insert into dose_events (id, patient_id, medication_id, scheduled_at, status, confirmed_via, created_at)
   select
-    encode(digest('pillpal-seed:' || pid || ':dose:' || d || ':' || m.drug || ':' || t, 'sha256'), 'hex')::uuid,
+    pg_temp.seed_uuid('pillpal-seed:' || pid || ':dose:' || d || ':' || m.drug || ':' || t),
     pid, m.id,
     ((today - d) + t::time) at time zone tz,
     s.status,
@@ -88,7 +115,7 @@ begin
    '[{"original":"I feel much better today.","english":"I feel much better today."}]');
 
   insert into calls (id, patient_id, chert_call_id, room_name, kind, language, started_at, ended_at, transcript)
-  select encode(digest('pillpal-seed:' || pid || ':call:' || c.n, 'sha256'), 'hex')::uuid, pid, 'seed-call-' || c.n,
+  select pg_temp.seed_uuid('pillpal-seed:' || pid || ':call:' || c.n), pid, 'seed-call-' || c.n,
          'pillpal-check_in-seed' || c.n, 'check_in', c.language,
          ((today - c.d) + time '08:05') at time zone tz,
          ((today - c.d) + time '08:11') at time zone tz,
@@ -98,8 +125,8 @@ begin
     language = excluded.language, transcript = excluded.transcript;
 
   insert into check_ins (id, call_id, patient_id, mood, symptoms, visual_notes, quotes, risk_level, summary, created_at)
-  select encode(digest('pillpal-seed:' || pid || ':checkin:' || c.n, 'sha256'), 'hex')::uuid,
-         encode(digest('pillpal-seed:' || pid || ':call:' || c.n, 'sha256'), 'hex')::uuid, pid,
+  select pg_temp.seed_uuid('pillpal-seed:' || pid || ':checkin:' || c.n),
+         pg_temp.seed_uuid('pillpal-seed:' || pid || ':call:' || c.n), pid,
          c.mood, c.symptoms, c.visual_notes, c.quotes, c.risk, c.summary,
          ((today - c.d) + time '08:11') at time zone tz
   from seed_calls c
@@ -109,7 +136,7 @@ begin
 
   -- one acknowledged orange alert
   insert into alerts (id, patient_id, level, reason, sent_to, created_at, acknowledged_at)
-  values (encode(digest('pillpal-seed:' || pid || ':alert:1', 'sha256'), 'hex')::uuid, pid, 'orange',
+  values (pg_temp.seed_uuid('pillpal-seed:' || pid || ':alert:1'), pid, 'orange',
           'Missed evening Metformin for the second time this week; tiredness and afternoon dizziness reported',
           'caregiver',
           ((today - 2) + time '19:45') at time zone tz,
@@ -118,7 +145,7 @@ begin
 
   -- memories
   insert into memories (id, patient_id, fact, created_at)
-  select encode(digest('pillpal-seed:' || pid || ':memory:' || x.n, 'sha256'), 'hex')::uuid, pid, x.fact,
+  select pg_temp.seed_uuid('pillpal-seed:' || pid || ':memory:' || x.n), pid, x.fact,
          ((today - (7 - (x.n - 1) * 2)) + time '09:00') at time zone tz
   from (values (1, 'Granddaughter Lily visits on Sundays.'),
                (2, 'Loves gardening; growing tomatoes this year.'),

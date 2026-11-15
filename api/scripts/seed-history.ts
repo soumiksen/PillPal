@@ -1,7 +1,9 @@
 /**
  * Seven days of demo history for the existing demo patient "Rose" (run `npm run seed:patient` first).
- * Same data and ids as supabase/seed.sql: every row id is sha256("pillpal-seed:<patient id>:<key>") as a
- * uuid, and rows are upserted on id, so re-running never duplicates (dates shift to the last 7 days).
+ * Same data and ids as supabase/seed.sql: every row id is sha256("pillpal-seed:<patient id>:<key>") shaped as a
+ * v4 uuid (version nibble 4, variant 8–b, so z.string().uuid() accepts it), and rows are upserted on id, so
+ * re-running never duplicates (dates shift to the last 7 days). Rows written by older versions of this seed
+ * (same keys, ids = raw md5 or raw sha256, which fail uuid validation) are deleted first.
  * No phone numbers are written. Prints row counts only.
  *
  *   npm run seed:history   (from api/)
@@ -16,9 +18,19 @@ function die(step: string, err: { code?: string; message: string }): never {
   process.exit(1);
 }
 
+const dashed = (h: string) => `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+
+/** Ids older versions of this seed wrote for the same keys (raw md5, raw sha256); deleted before upserting. */
+const legacyIds: string[] = [];
+const currentIds = new Set<string>();
+
 const seedId = (patientId: string, key: string): string => {
   const h = createHash("sha256").update(`pillpal-seed:${patientId}:${key}`).digest("hex");
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  legacyIds.push(dashed(h), dashed(createHash("md5").update(`pillpal-seed:${patientId}:${key}`).digest("hex")));
+  const variant = "89ab"[parseInt(h[16]!, 16) & 3]!;
+  const id = dashed(`${h.slice(0, 12)}4${h.slice(13, 16)}${variant}${h.slice(17, 32)}`);
+  currentIds.add(id);
+  return id;
 };
 
 /** Chicago wall-clock `hhmm`, `daysAgo` days before today → ISO instant. */
@@ -195,6 +207,15 @@ async function main() {
     fact,
     created_at: at(7 - i * 2, "09:00"),
   }));
+
+  // Rows from older versions of this seed have ids the agent's context parse rejects: drop them.
+  // A raw sha256 can already look like a v4 uuid, so keep current ids. check_ins reference calls, so they go first.
+  const stale = legacyIds.filter((id) => !currentIds.has(id));
+  for (const table of ["check_ins", "alerts", "memories", "dose_events", "calls"] as const) {
+    const r = await db.from(table).delete({ count: "exact" }).eq("patient_id", patientId).in("id", stale);
+    if (r.error) die(`delete old ${table}`, r.error);
+    if (r.count) console.log(`${table}: removed ${r.count} rows from an older seed`);
+  }
 
   for (const [table, rows] of [
     ["dose_events", doses],
