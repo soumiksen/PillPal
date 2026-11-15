@@ -114,7 +114,7 @@ text; text ≤ 4,000 chars. The response shapes of `/shared-messages` are not do
 ## FaceTime (`CHERT_FACETIME_MODE`)
 
 `src/chert/facetime.ts`. `dial(patient, kind)` → LiveKit room `pillpal-<kind>-<8 hex>` → `AgentDispatchClient` dispatch of
-`AGENT_NAME` with metadata `{patient_id, kind}` → bridge token (identity `bridge-<uuid>`, join/publish/subscribe on that
+`AGENT_NAME` with metadata `{patient_id, kind}` → bridge token (identity `chert-bridge-<uuid>`, join/publish/subscribe on that
 room only, integer `nbf`/`exp`, ttl 3600 s) → `POST /v1/calls` (`direction:"outbound"`, `mode:"customer_managed"`,
 `destination_type:"phone"`, `media:{audio:true, video:true}`, `remote_participant_identity: AGENT_NAME`, fresh
 `Idempotency-Key`) → `calls` row. Group calls send `recipients:[{type:"phone_number", value}]` instead.
