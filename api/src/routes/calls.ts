@@ -31,6 +31,13 @@ calls.post("/started", async (c) => {
   if (existing[0]) {
     if (body.chert_call_id) {
       must("update call", await db.from("calls").update({ chert_call_id: body.chert_call_id }).eq("id", existing[0].id));
+      facetime.adopt({
+        chert_call_id: body.chert_call_id,
+        room_name: body.room_name,
+        patient_id: body.patient_id,
+        kind: body.kind,
+        group: body.kind === "group",
+      });
     }
     return c.json({ id: existing[0].id } satisfies IdResponse);
   }

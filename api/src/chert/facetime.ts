@@ -323,6 +323,17 @@ export class FaceTimeService {
     return { ...placed, call_id: row.id };
   }
 
+  /**
+   * A call placed outside POST /dial (e.g. agent/scripts/outbound-call.ts) announced its Chert call id via
+   * POST /calls/started. Track it so escalation can end it (1 line = 1 call) before placing the group call.
+   */
+  adopt(info: ActiveLine): void {
+    if (this.line && this.line.chert_call_id !== info.chert_call_id) return; // already tracking another call
+    if (this.line?.chert_call_id === info.chert_call_id) return;
+    this.line = info;
+    if (this.transport.mode === "live") this.watch({ chert_call_id: info.chert_call_id, room_name: info.room_name });
+  }
+
   /** 1:1 FaceTime video to the patient's phone. */
   async dial(patientId: string, kind: CallKindName): Promise<PlacedCall & { call_id: string }> {
     const patient = await getPatient(patientId);
