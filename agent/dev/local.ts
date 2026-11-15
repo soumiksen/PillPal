@@ -54,7 +54,7 @@ const log=m=>document.getElementById('log').textContent+=m+'\\n';let room;
 go.onclick=async()=>{go.disabled=true;
  const {token,url}=await (await fetch('/token')).json();
  room=new LivekitClient.Room();
- room.on('trackSubscribed',(t)=>{if(t.kind==='audio'){document.body.appendChild(t.attach());log('Pal joined (audio)')}});
+ room.on('trackSubscribed',(t)=>{if(t.kind==='audio'){document.body.appendChild(t.attach());log('Pal joined (audio)')}else if(t.kind==='video'){const v=t.attach();v.id='pal';v.style.cssText='width:320px;border-radius:12px;margin:8px';document.body.appendChild(v);log('Pal joined (video)')}});
  await room.connect(url,token);
  const tracks=await LivekitClient.createLocalTracks({audio:true,video:{resolution:{width:640,height:480}}});
  for(const t of tracks){ if(t.kind==='video'){me.srcObject=new MediaStream([t.mediaStreamTrack]);
