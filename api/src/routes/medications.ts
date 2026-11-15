@@ -3,6 +3,7 @@ import * as ai from "@pillpal/ai";
 import {
   CreateMedicationBody,
   UpdateMedicationBody,
+  touchesPrescription,
   type IdResponse,
 } from "@pillpal/shared";
 import type { z } from "zod";
@@ -11,7 +12,8 @@ import { getMedication, getPatient, must, mustOne, notFound } from "../lib/data.
 import { jsonBody, uuidParam, validate } from "../lib/http.js";
 import { uploadPillPhoto } from "../lib/storage.js";
 import { fileToUpload, isMultipart, multipartBody } from "../lib/upload.js";
-import { assertCareTeam, requireUser } from "../lib/auth.js";
+import { HTTPException } from "hono/http-exception";
+import { assertCareTeam, currentUser, requireUser } from "../lib/auth.js";
 
 export const medications = new Hono();
 
@@ -86,7 +88,17 @@ medications.patch("/:id", requireUser, async (c) => {
   if (!med.patient_id) throw notFound("medication");
   await assertCareTeam(c, med.patient_id);
   const { body, photo } = await readMedication(c, UpdateMedicationBody);
-  const { pill_photo_b64, ...fields } = body;
+  const { pill_photo_b64, confirmed_by: _ignored, ...fields } = body;
+  void _ignored; // who confirmed a prescription is set by the server, never by the client
+  // Changing the prescription itself (drug, dose, times, food rule, stopping it) is the doctor's decision.
+  if (touchesPrescription(fields)) {
+    const user = currentUser(c);
+    if (user.role !== "doctor") throw new HTTPException(403, { message: "doctor_only" });
+    const profile = must("get profile", await db.from("profiles").select("full_name").eq("id", user.id).maybeSingle()) as
+      | { full_name: string | null }
+      | null;
+    (fields as Record<string, unknown>).confirmed_by = profile?.full_name?.trim() || "Doctor";
+  }
   const p = photo ?? (pill_photo_b64 ? { b64: pill_photo_b64 } : undefined);
   const extra = p && med.patient_id ? await processPhoto(med.patient_id, p) : {};
   const patch = { ...fields, ...extra };

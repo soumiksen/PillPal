@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ArrowLeft, MessageCircleQuestion, Pencil, Send, ShieldAlert, Sparkles, X } from "lucide-react";
+import { ArrowLeft, MessageCircleQuestion, Pencil, Plus, ShieldAlert, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { useLive } from "@/lib/useLive";
 import { useRequireAccount } from "@/lib/account";
@@ -11,7 +11,8 @@ import { api } from "@/lib/api";
 import { languageName } from "@/lib/languages";
 import type { Brief, DoseEvent, Medication } from "@/lib/types";
 import { PillBox, weekStats } from "@/components/pillbox";
-import { Button, Dialog, Field, Input, Panel, Textarea, cn } from "@/components/ui";
+import { Button, Panel, cn } from "@/components/ui";
+import { AddMedicineDialog, ChangePrescriptionDialog } from "@/components/change-prescription";
 
 const FOOD = { empty_stomach: "Empty stomach", with_food: "With food", none: "No food rule" } as const;
 const fmtWhen = (iso: string) =>
@@ -19,11 +20,12 @@ const fmtWhen = (iso: string) =>
 
 export default function DoctorPatientPage() {
   const { patientId } = useParams<{ patientId: string }>();
-  useRequireAccount("doctor");
+  const account = useRequireAccount("doctor");
   const d = useLive(patientId);
   const [brief, setBrief] = useState<Brief | null>(null);
   const [writing, setWriting] = useState(false);
   const [editing, setEditing] = useState<Medication | null>(null);
+  const [adding, setAdding] = useState(false);
 
   async function generate() {
     setWriting(true);
@@ -178,7 +180,12 @@ export default function DoctorPatientPage() {
           </Panel>
 
           <Panel className="p-6">
-            <h2 className="font-display text-xl font-semibold">Medicines</h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-display text-xl font-semibold">Medicines</h2>
+              <Button size="sm" variant="quiet" onClick={() => setAdding(true)}>
+                <Plus className="size-4" aria-hidden /> Add medicine
+              </Button>
+            </div>
             <ul className="mt-2 divide-y divide-line">
               {d.meds.map((m) => (
                 <li key={m.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
@@ -194,7 +201,7 @@ export default function DoctorPatientPage() {
                     </p>
                   </div>
                   <Button size="sm" variant="quiet" onClick={() => setEditing(m)}>
-                    <Pencil className="size-4" aria-hidden /> Change dose
+                    <Pencil className="size-4" aria-hidden /> Change prescription
                   </Button>
                 </li>
               ))}
@@ -203,13 +210,22 @@ export default function DoctorPatientPage() {
         </div>
       </div>
 
-      <ChangeDoseDialog
+      <ChangePrescriptionDialog
         med={editing}
         patientId={p.id}
         patientName={p.preferred_name}
         caregiver={p.caregiver_name}
         language={languageName(p.language)}
         onClose={() => setEditing(null)}
+        onSaved={d.reload}
+      />
+      <AddMedicineDialog
+        open={adding}
+        patientId={p.id}
+        patientName={p.preferred_name}
+        doctorName={account.profile?.full_name?.trim() || "Doctor"}
+        onClose={() => setAdding(false)}
+        onSaved={d.reload}
       />
     </div>
   );
@@ -241,71 +257,5 @@ function FlagRow({ dose, med, name }: { dose: DoseEvent; med?: Medication; name:
         </p>
       </div>
     </li>
-  );
-}
-
-function ChangeDoseDialog({
-  med,
-  patientId,
-  onClose,
-  patientName,
-  caregiver,
-  language,
-}: {
-  med: Medication | null;
-  patientId: string;
-  onClose: () => void;
-  patientName: string;
-  caregiver: string;
-  language: string;
-}) {
-  const [dose, setDose] = useState("");
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  async function save() {
-    if (!med || !dose.trim()) return;
-    setSaving(true);
-    try {
-      await api.updateMedication(med.id, { strength: dose.trim() });
-      await api.notifyDoseChange({ patient_id: patientId, medication_id: med.id, old_dose: med.strength, new_dose: dose.trim(), doctor_note: note.trim() });
-      toast.success(`Dose changed. ${patientName} gets a text and a voice note in ${language}; ${caregiver} gets a summary.`);
-      setDose("");
-      setNote("");
-      onClose();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't change the dose.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Dialog
-      open={Boolean(med)}
-      onOpenChange={(o) => !o && onClose()}
-      title={med ? `Change ${med.drug} dose` : ""}
-      description={med ? `Now ${med.strength}, ${med.dose}, at ${med.times.join(" and ")}.` : undefined}
-    >
-      <div className="flex flex-col gap-4">
-        <Field label="New dose" htmlFor="new-dose">
-          <Input id="new-dose" value={dose} onChange={(e) => setDose(e.target.value)} placeholder="e.g. 5 mg" autoFocus />
-        </Field>
-        <Field label="Note for the family" htmlFor="note" hint={`Pal explains it to ${patientName} in plain ${language}.`}>
-          <Textarea id="note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Lowering the dose because of the dizziness this week." />
-        </Field>
-        <div className="rounded-[14px] bg-mint-soft p-3 text-[15px]">
-          {patientName} gets a text and a voice note in {language}. {caregiver} gets an English summary in the Care Circle chat.
-        </div>
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={saving || !dose.trim()}>
-            <Send className="size-4" aria-hidden /> {saving ? "Sending…" : "Change dose and notify"}
-          </Button>
-        </div>
-      </div>
-    </Dialog>
   );
 }
