@@ -19,3 +19,16 @@ test("prompt carries name, language, due meds, safety rules", () => {
   assert.match(p, /never change or add a dose/);
   assert.match(p, /Anna/);
 });
+
+test("emergency group call prompt tells Pal both people are on and not to diagnose", () => {
+  const p = buildInstructions(ctx, { extraCaregiver: true });
+  assert.match(p, /EMERGENCY FOLLOW-UP GROUP CALL/);
+  assert.match(p, /never diagnose/);
+  assert.match(p, /never place that call yourself/);
+});
+
+test("emergency rule gives Pal the exact hold sentence and tells her to escalate", () => {
+  const p = buildInstructions(ctx);
+  assert.match(p, /Keep your phone in your hand\. I am cutting this call and calling you along with your caregiver\./);
+  assert.match(p, /call escalate_now/);
+});

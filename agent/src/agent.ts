@@ -12,7 +12,7 @@ import { api } from "./api.js";
 import { FrameGrabber } from "./frames.js";
 import { startAvatar, type Avatar } from "./avatar/publish.js";
 import { buildInstructions } from "./prompt.js";
-import { buildTools, type CallState } from "./tools.js";
+import { buildTools, escalateNow, type CallState } from "./tools.js";
 
 const GEMINI_LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025";
 
@@ -53,21 +53,24 @@ function waitForBridgeReady(room: Room, timeoutMs: number): Promise<boolean> {
   });
 }
 
+/** Words that mean "get my caregiver now". Safety-biased: a false alarm is better than a miss. */
+const EMERGENCY_WORDS = [/\bemergenc(y|ies)\b/i, /\bcall (my |the )?care[ -]?(giver|taker)\b/i, /\bemergencia\b/i, /\bllam\w*\s+(a\s+)?(mi|la)\s+cuidador/i];
+
 /** Resolve once the participant's audio track is subscribed, or after timeoutMs (never blocks the call). */
-function waitForCallerAudio(room: Room, p: RemoteParticipant, timeoutMs: number): Promise<void> {
+function waitForCallerAudio(room: Room, p: RemoteParticipant, timeoutMs: number): Promise<boolean> {
   const hasAudio = () =>
     [...p.trackPublications.values()].some((t) => t.kind === TrackKind.KIND_AUDIO && t.subscribed);
-  if (hasAudio()) return Promise.resolve();
+  if (hasAudio()) return Promise.resolve(true);
   return new Promise((resolve) => {
-    const done = () => {
+    const done = (ok = true) => {
       clearTimeout(timer);
       room.off(RoomEvent.TrackSubscribed, onSub);
-      resolve();
+      resolve(ok);
     };
     const onSub = (_t: unknown, _pub: unknown, who: RemoteParticipant) => {
       if (who.identity === p.identity && hasAudio()) done();
     };
-    const timer = setTimeout(done, timeoutMs);
+    const timer = setTimeout(() => done(false), timeoutMs);
     room.on(RoomEvent.TrackSubscribed, onSub);
   });
 }
@@ -82,14 +85,17 @@ export default defineAgent({
     // Register frame handlers before connecting, and subscribe to video too (starter is audio-only).
     const grabber = new FrameGrabber();
     grabber.attach(ctx.room);
+    let avatar: Avatar | null = null;
     await ctx.connect(undefined, AutoSubscribe.SUBSCRIBE_ALL);
+    // Publish Helen's video first: Chert wants the agent's video in the room before an outbound call is dialed.
+    avatar = await startAvatar(ctx.room);
 
     const context = await api.context(patientId);
     const roomName = ctx.room.name ?? "unknown";
-    const kind = (["check_in", "reminder", "group", "inbound"] as const).find((k) => k === meta.kind) ?? "inbound";
+    const kind = (["check_in", "reminder", "group", "inbound"] as const).find((k) => k === meta.kind) ?? (meta.kind === "escalation" ? "group" : "inbound");
+    const emergencyGroup = meta.kind === "escalation" || meta.kind === "group";
     await api.callStarted({ patient_id: patientId, room_name: roomName, kind }).catch(() => undefined);
 
-    let avatar: Avatar | null = null;
     const state: CallState = {
       patientId,
       roomName,
@@ -123,7 +129,7 @@ export default defineAgent({
     };
 
     const agent = new voice.Agent({
-      instructions: buildInstructions(context),
+      instructions: buildInstructions(context, { extraCaregiver: emergencyGroup }),
       tools: buildTools(state),
     });
     const session = new voice.AgentSession({
@@ -131,7 +137,7 @@ export default defineAgent({
         model: GEMINI_LIVE_MODEL,
         voice: "Kore",
         temperature: 0.6,
-        instructions: buildInstructions(context),
+        instructions: buildInstructions(context, { extraCaregiver: emergencyGroup }),
         // Thinking adds seconds before every spoken reply; Pal needs speed, not deliberation.
         thinkingConfig: { thinkingBudget: Number(process.env.GEMINI_THINKING_BUDGET ?? 0), includeThoughts: false },
         inputAudioTranscription: {},
@@ -143,6 +149,42 @@ export default defineAgent({
       if (ev.item.type !== "message") return;
       const text = ev.item.textContent;
       if (text) state.transcript.push(`${ev.item.role === "user" ? "Patient" : "Pal"}: ${text}`);
+    });
+
+
+    // Pal's own state, so a tool can wait until she has finished speaking.
+    let agentState = "initializing";
+    session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => {
+      agentState = ev.newState;
+    });
+    state.waitUntilIdle = async (maxMs) => {
+      const end = Date.now() + maxMs;
+      while (Date.now() < end && agentState === "speaking") await new Promise((r) => setTimeout(r, 150));
+      await new Promise((r) => setTimeout(r, 900)); // let the last audio finish playing out
+    };
+
+    // Safety net for "emergency" / "call my caregiver": the prompt makes Pal say the hold sentence and call
+    // escalate_now. If the model does not do that within 10 s, escalate from code (no speech injection:
+    // generateReply with instructions mid-call restarts Gemini Live and kills the session). Never logs speech.
+    let netArmed = false;
+    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
+      if (!ev.isFinal || netArmed || state.escalated || state.ended) return;
+      const cg = context.patient.caregiver_name?.trim();
+      const named = cg && cg.length > 1 ? new RegExp(`\\bcall\\s+${cg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i") : null;
+      if (!EMERGENCY_WORDS.some((re) => re.test(ev.transcript)) && !(named && named.test(ev.transcript))) return;
+      netArmed = true;
+      avatar?.controller.show("serious");
+      setTimeout(() => {
+        if (state.escalated || state.ended) return;
+        void (async () => {
+          await state.waitUntilIdle?.(9000);
+          await escalateNow(
+            state,
+            "Patient asked for their caregiver or said it is an emergency",
+            "During the call the patient said 'emergency' or asked Pal to call their caregiver. Pal is bringing the caregiver in.",
+          ).catch(() => undefined);
+        })();
+      }, 10_000);
     });
 
     // Idempotent: save transcript + vision events, run extraction (API → ai.extractCheckIn), close.
@@ -174,29 +216,64 @@ export default defineAgent({
       // Video frames go to Claude via the FrameGrabber, not to Gemini Live (less load, fewer session errors).
       inputOptions: { videoEnabled: false },
     });
-    avatar = await startAvatar(ctx.room);
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => avatar?.controller.setState(ev.newState));
     const caller = await ctx.waitForParticipant();
-    // Under Chert, greet on the bridge_ready room signal (media is live). Anywhere else (local test page),
-    // or if the signal never comes, fall back to: caller audio subscribed + a short beat.
+    // A call placed outside POST /dial (scripts/outbound-call.ts) announces its Chert call id in the room metadata.
+    // Tell the backend as soon as it appears (not only at greeting time: the greeting can fire first, via caller audio)
+    // so escalation can end this 1:1 call before it starts the caregiver group call. Idempotent per call id.
+    let adoptedCall = "";
+    const adoptCall = (raw: string | undefined) => {
+      try {
+        const id = (JSON.parse(raw || "{}") as { chert_call?: string }).chert_call;
+        if (!id || id === adoptedCall) return;
+        adoptedCall = id;
+        void api.callStarted({ patient_id: patientId, room_name: roomName, kind, chert_call_id: id }).catch(() => {
+          adoptedCall = ""; // try again on the next metadata change
+        });
+      } catch {
+        /* not JSON */
+      }
+    };
+    adoptCall(ctx.room.metadata);
+    ctx.room.on(RoomEvent.RoomMetadataChanged, adoptCall);
+
+    // Greeting rules (Chert): never greet merely because the bridge joined.
+    //  - `chert dev` inbound: greet on the chert_bridge_ready room signal (media live).
+    //  - Calls placed by the backend (check_in / reminder / escalation) or our outbound script: the bridge joins
+    //    while the phone is still ringing, so wait up to 90 s for either the ready signal or the caller's
+    //    audio track, and stay quiet if neither comes (nobody answered).
+    //  - Local test page: caller audio + a short beat.
+    const delay = Number(process.env.GREETING_DELAY_MS ?? 2500);
+    const outboundish = meta.outbound === true || (meta.kind !== undefined && meta.kind !== "inbound");
     const underChert = caller.identity.startsWith("chert-bridge-");
     let how = "fallback";
-    // Outbound: the bridge joins while the phone is still ringing, so wait much longer; if she never
-    // answers (no signal), stay quiet rather than greeting an empty line.
-    const outbound = meta.outbound === true;
-    if (underChert && (await waitForBridgeReady(ctx.room, outbound ? 90_000 : 9000))) {
+    if (outboundish) {
+      const won = await Promise.race([
+        waitForBridgeReady(ctx.room, 90_000).then((ok) => (ok ? "bridge_ready" : "none")),
+        waitForCallerAudio(ctx.room, caller, 90_000).then(async (ok) => {
+          if (!ok) return "none";
+          await new Promise((r) => setTimeout(r, delay));
+          return "caller_audio";
+        }),
+      ]);
+      if (won === "none") {
+        console.log("[pal] outbound call never became ready; not greeting");
+        return;
+      }
+      how = won;
+    } else if (underChert && (await waitForBridgeReady(ctx.room, 9000))) {
       how = "bridge_ready";
-    } else if (outbound) {
-      console.log("[pal] outbound call never became ready; not greeting");
-      return;
     } else {
       await waitForCallerAudio(ctx.room, caller, 8000);
-      await new Promise((r) => setTimeout(r, Number(process.env.GREETING_DELAY_MS ?? 2500)));
+      await new Promise((r) => setTimeout(r, delay));
     }
     console.log(`[pal] greeting via ${how} (+${Date.now() - startedAt} ms since job start)`);
     avatar?.controller.hello();
+    const pname = context.patient.preferred_name ?? context.patient.name ?? "the patient";
     session.generateReply({
-      instructions: `Greet ${context.patient.preferred_name ?? context.patient.name ?? "the patient"} warmly by name and ask one friendly question.`,
+      instructions: emergencyGroup
+        ? `Calmly greet ${pname} and ${context.patient.caregiver_name ?? "their caregiver"} by name, say you are checking in because ${pname} reported a problem, and ask ${pname} how they feel right now.`
+        : `Greet ${pname} warmly by name and ask one friendly question.`,
     });
   },
 });

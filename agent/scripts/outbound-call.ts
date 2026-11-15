@@ -2,6 +2,8 @@
  * One-shot outbound FaceTime call: Pal calls the patient (Chert BYOR outbound, docs.trychert.com/facetime/outbound).
  *
  *   node --env-file=../.env --import tsx scripts/outbound-call.ts [--at HH:MM] [--audio-only]
+ *   ... --group [--video]   one group call to the patient AND the caregiver (audio-only unless --video; Chert says
+ *                           group video needs separate confirmation per line). Use on an idle line to test group calling.
  *
  * Flow: create a LiveKit room → dispatch pillpal-agent (job metadata: patient_id, outbound) → mint a bridge token →
  * POST /api/v1/calls → wait for bridge_ready → set room metadata {"chert_bridge_ready":true} (the agent greets on it) →
@@ -63,13 +65,17 @@ async function main() {
   const apiSecret = need("LIVEKIT_API_SECRET");
   const agentName = process.env.AGENT_NAME ?? "pillpal-agent";
   const patientId = need("PATIENT_ID");
-  const video = !process.argv.includes("--audio-only");
+  const group = process.argv.includes("--group");
+  const video = group ? process.argv.includes("--video") : !process.argv.includes("--audio-only");
 
   // Destination comes from the patient record (via our API), never typed into logs.
   const ctxRes = await fetch(`${process.env.API_URL ?? "http://localhost:8787"}/patients/${patientId}/context`);
   if (!ctxRes.ok) throw new Error(`could not load patient context (HTTP ${ctxRes.status})`);
-  const phone = ((await ctxRes.json()) as { patient: { phone?: string | null } }).patient.phone;
+  const patientRow = ((await ctxRes.json()) as { patient: { phone?: string | null; caregiver_phone?: string | null } }).patient;
+  const phone = patientRow.phone;
   if (!phone) throw new Error("patient has no phone number");
+  const caregiverPhone = patientRow.caregiver_phone ?? process.env.CAREGIVER_PHONE;
+  if (group && !caregiverPhone) throw new Error("--group needs the caregiver's phone (patients.caregiver_phone or CAREGIVER_PHONE)");
 
   const at = arg("--at");
   if (at) await waitUntil(at);
@@ -81,7 +87,7 @@ async function main() {
   const roomName = `pillpal-check_in-${patientId.slice(0, 8)}-${Date.now()}`;
   await rooms.createRoom({ name: roomName, emptyTimeout: 300 });
   await dispatch.createDispatch(roomName, agentName, {
-    metadata: JSON.stringify({ patient_id: patientId, kind: "check_in", outbound: true }),
+    metadata: JSON.stringify({ patient_id: patientId, kind: group ? "group" : "check_in", outbound: true }),
   });
   log("room created, agent dispatched");
 
@@ -91,25 +97,40 @@ async function main() {
   at2.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
   const bridgeToken = await at2.toJwt();
 
-  // Give the agent a moment to join and publish its (silent) audio track before dialing.
-  await sleep(4000);
+  // Chert wants the agent's audio AND video published before dialing. Wait until Pal's avatar track is really in
+  // the room (a fixed sleep raced the agent's start-up and the call went out without video).
+  const needVideo = video && (process.env.AVATAR ?? "on") !== "off";
+  const waitStart = Date.now();
+  let published = false;
+  while (Date.now() - waitStart < 30_000) {
+    const ps = await rooms.listParticipants(roomName).catch(() => []);
+    published = ps.some((p) => p.tracks.some((t) => t.name === "pal-avatar"));
+    if (published || !needVideo) break;
+    await sleep(500);
+  }
+  log(needVideo ? (published ? `agent video published after ${Date.now() - waitStart} ms` : "agent video NOT published within 30 s; dialing anyway") : "video not required");
+  await sleep(1500); // let the audio track settle too
 
-  const create = await chert(
-    "POST",
-    "/calls",
-    {
-      direction: "outbound",
-      mode: "customer_managed",
-      line_id: need("CHERT_LINE_ID"),
-      destination: phone,
-      destination_type: "phone",
-      media: { audio: true, video },
-      livekit_url: livekitUrl,
-      participant_token: bridgeToken,
-      remote_participant_identity: agentName,
-    },
-    `pillpal-${randomUUID()}`,
-  );
+  // The line is a SHARED line: another team's call can hold it. Retry on line_busy for up to 3 minutes.
+  const callBody = {
+    direction: "outbound",
+    mode: "customer_managed",
+    line_id: need("CHERT_LINE_ID"),
+    ...(group
+      ? { recipients: [phone, caregiverPhone!].map((value) => ({ type: "phone_number", value })) }
+      : { destination: phone, destination_type: "phone" }),
+    media: { audio: true, video },
+    livekit_url: livekitUrl,
+    participant_token: bridgeToken,
+    remote_participant_identity: agentName,
+  };
+  let create = await chert("POST", "/calls", callBody, `pillpal-${randomUUID()}`);
+  const busyUntil = Date.now() + 180_000;
+  while (create.status === 409 && String(create.json?.error?.code ?? create.json?.code ?? "") === "line_busy" && Date.now() < busyUntil) {
+    log("line busy (another call holds the shared line), retrying in 5 s");
+    await sleep(5000);
+    create = await chert("POST", "/calls", callBody, `pillpal-${randomUUID()}`);
+  }
   log(`create call → HTTP ${create.status}`);
   const callId: string | undefined = create.json?.data?.id;
   if (create.status !== 201 || !callId) {
@@ -120,6 +141,9 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+
+  // Let the agent (and through it the backend) know the Chert call id now, so escalation can end this call.
+  await rooms.updateRoomMetadata(roomName, JSON.stringify({ chert_call: callId })).catch(() => undefined);
 
   let ready = false;
   const started = Date.now();

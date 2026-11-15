@@ -22,9 +22,19 @@ export interface CallState {
   finish: () => Promise<void>; // end the call (idempotent)
   /** Visual-only hook for the avatar; must never affect tool behaviour. */
   onTool?: (name: string, phase: "start" | "end", result?: unknown) => void;
+  /** Resolves once Pal has stopped speaking (or after maxMs). Set by agent.ts. */
+  waitUntilIdle?: (maxMs: number) => Promise<void>;
 }
 
 const log = (s: CallState, e: Omit<VisionEvent, "at">) => s.visionEvents.push({ at: new Date().toISOString(), ...e });
+
+/** Raise the red alert + caregiver call via the API. Idempotent per call. Used by the escalate_now tool and the keyword trigger. */
+export async function escalateNow(s: CallState, reason: string, summary: string): Promise<{ ok: boolean; group_call: boolean; already: boolean }> {
+  if (s.escalated) return { ok: true, group_call: false, already: true };
+  s.escalated = true;
+  const r = await api.escalate({ patient_id: s.patientId, room_name: s.roomName, reason, summary });
+  return { ok: true, group_call: r.group_call_id !== null, already: false };
+}
 
 export function buildTools(s: CallState) {
   const medOf = (id?: string) => {
@@ -146,12 +156,13 @@ export function buildTools(s: CallState) {
         summary: z.string().describe("1–2 sentence English summary for the caregiver"),
       }),
       execute: async ({ reason, summary }) => {
-        if (s.escalated) return { ok: true, say: "Caregiver already notified. Keep reassuring the patient." };
-        s.escalated = true;
-        const r = await api.escalate({ patient_id: s.patientId, room_name: s.roomName, reason, summary });
+        // The backend ends this call right away, so let Pal finish saying what she is about to do first.
+        await s.waitUntilIdle?.(9000);
+        const r = await escalateNow(s, reason, summary);
+        if (r.already) return { ok: true, say: "Caregiver already notified. Keep reassuring the patient." };
         return {
           ok: true,
-          group_call: r.group_call_id !== null,
+          group_call: r.group_call,
           say: `Tell the patient calmly that ${s.ctx.patient.caregiver_name ?? "their caregiver"} has been alerted and is joining. If it is an emergency they should call 911.`,
         };
       },

@@ -74,6 +74,24 @@ async function setSentTo(alertId: string, sentTo: string): Promise<void> {
   must("update alert sent_to", await db.from("alerts").update({ sent_to: sentTo }).eq("id", alertId));
 }
 
+/**
+ * Chert needs a moment to finish cleaning up the 1:1 call before the line can start a new one: the create is refused
+ * with invalid_state (or line_busy) right after the call ends. Retry for up to ~24 s before giving up to the text fallback.
+ */
+async function dialGroupWhenLineFree(patientId: string, phones: string[]) {
+  const attempts = 8;
+  for (let i = 1; ; i++) {
+    try {
+      return await facetime.dialGroup(patientId, phones, "escalation");
+    } catch (err) {
+      const code = err instanceof FaceTimeError ? err.code : (err as { message?: string }).message === "line_busy" ? "line_busy" : "";
+      if ((code !== "invalid_state" && code !== "line_busy") || i >= attempts) throw err;
+      console.log(`[escalate] line not ready for the group call (${code}), retry ${i}/${attempts - 1} in 3 s`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+}
+
 async function groupCall(patientId: string, alertId: string, _roomName?: string): Promise<GroupOutcome> {
   const patient = await getPatient(patientId);
   const name = displayName(patient, "the patient");
@@ -101,13 +119,13 @@ async function groupCall(patientId: string, alertId: string, _roomName?: string)
   let code = "missing_phone";
   if (patientNumber && caregiverNumber) {
     try {
-      const placed = await facetime.dialGroup(patientId, [patientNumber, caregiverNumber], "escalation");
+      const placed = await dialGroupWhenLineFree(patientId, [patientNumber, caregiverNumber]);
       await setSentTo(alertId, "caregiver,group_facetime");
       console.log("[escalate] group FaceTime placed");
       return { kind: "group_call", chert_call_id: placed.chert_call_id, room_name: placed.room_name };
     } catch (err) {
       code = err instanceof FaceTimeError ? err.code : (err as { message?: string }).message === "line_busy" ? "line_busy" : "error";
-      console.warn(`[escalate] group FaceTime unavailable (${code}), texting caregiver instead`);
+      console.warn(`[escalate] group FaceTime unavailable (${code}${err instanceof Error ? `: ${err.message.slice(0, 160)}` : ""}), texting caregiver instead`);
     }
   }
   const messageId = await textCaregiver(patient, `Please FaceTime ${name} now.`, "escalation fallback");
