@@ -1,6 +1,6 @@
 /**
  * Decides Helen's expression over time: agent state + tool events + idle life (blinks, breathing, gaze drift).
- * Pure logic, no I/O. Visual only: it must never affect what Pal says or does.
+ * Pure logic, no I/O (the optional mouth level is read through a callback). Visual only: it must never affect what Pal says or does.
  */
 import { NEUTRAL, PRESETS, type ExpressionName, type Rig } from "./rig.js";
 
@@ -22,6 +22,19 @@ export class AvatarController {
   private nodLeft = 0;
   private syl = { open: 0, wide: 0, next: 0 };
   private greeted = false;
+  private expr: ExpressionName = "smile";
+  private mouthLevel: (() => number | null) | null = null;
+  private wideHold = { v: 0, next: 0 };
+
+  /** The preset currently showing (portrait mode draws its frame). */
+  get expression(): ExpressionName {
+    return this.expr;
+  }
+
+  /** Drive the mouth from Pal's real audio (0..1, or null when nothing is playing). */
+  setMouthLevel(fn: (() => number | null) | null) {
+    this.mouthLevel = fn;
+  }
 
   setState(s: AgentState) {
     this.state = s;
@@ -60,7 +73,8 @@ export class AvatarController {
   /** Advance dt seconds and return the rig to draw. */
   tick(dt: number): Rig {
     this.t += dt;
-    const target: Rig = { ...PRESETS[this.baseName()] };
+    this.expr = this.baseName();
+    const target: Rig = { ...PRESETS[this.expr] };
 
     // idle life
     target.breath = 0.5 + 0.5 * Math.sin(this.t * 1.6);
@@ -97,8 +111,21 @@ export class AvatarController {
       target.nod += 0.6 * Math.sin(((0.5 - this.nodLeft) / 0.5) * Math.PI);
     }
 
-    // speaking: syllable-like mouth motion (procedural; no audio coupling)
-    if (this.state === "speaking") {
+    // speaking: mouth follows Pal's real audio when it is playing; procedural syllables otherwise
+    let level: number | null = null;
+    try {
+      level = this.mouthLevel?.() ?? null;
+    } catch {
+      level = null;
+    }
+    if (level !== null) {
+      this.wideHold.next -= dt;
+      if (this.wideHold.next <= 0) {
+        this.wideHold.next = rnd(0.12, 0.26);
+        this.wideHold.v = rnd(-0.6, 0.7);
+      }
+      target.mouthWide = this.wideHold.v * Math.min(1, level * 1.5);
+    } else if (this.state === "speaking") {
       this.syl.next -= dt;
       if (this.syl.next <= 0) {
         this.syl.next = rnd(0.07, 0.17);
@@ -116,6 +143,8 @@ export class AvatarController {
       const rate = fast ? 28 : 7;
       this.cur[k] += (target[k] - this.cur[k]) * (1 - Math.exp(-rate * dt));
     }
+    // the audio envelope is already smoothed (fast attack, slow release): use it as is
+    if (level !== null) this.cur.mouthOpen = Math.max(target.mouthOpen, level);
     return this.cur;
   }
 }
