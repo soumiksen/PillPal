@@ -1,11 +1,13 @@
 -- PillPal demo seed (Role 2): one week of history for the demo patient "Rose".
 -- Run after `npm run seed:patient` (creates Rose + Levothyroxine, Metformin, Lisinopril).
 -- Same rows and ids as `npm run seed:history` (api/scripts/seed-history.ts): every id is
--- md5('pillpal-seed:<patient id>:<key>')::uuid and rows are upserted on id, so it is idempotent.
+-- sha256('pillpal-seed:<patient id>:<key>')::uuid and rows are upserted on id, so it is idempotent.
 -- Story: 28 scheduled doses over the last 7 days (America/Chicago): 24 taken (facetime /
 -- imessage_tapback), 2 missed Metformin evenings, 1 wrong pill caught, 1 skipped; 6 check-in calls
 -- (moods 3–5, some Spanish quotes, one orange risk); 1 acknowledged orange alert; 3 memories.
 -- No phone numbers are written.
+
+create extension if not exists pgcrypto;
 
 do $$
 declare
@@ -21,7 +23,7 @@ begin
   -- dose_events: every slot of every seeded med, days 1..7 ago
   insert into dose_events (id, patient_id, medication_id, scheduled_at, status, confirmed_via, created_at)
   select
-    md5('pillpal-seed:' || pid || ':dose:' || d || ':' || m.drug || ':' || t)::uuid,
+    encode(digest('pillpal-seed:' || pid || ':dose:' || d || ':' || m.drug || ':' || t, 'sha256'), 'hex')::uuid,
     pid, m.id,
     ((today - d) + t::time) at time zone tz,
     s.status,
@@ -86,7 +88,7 @@ begin
    '[{"original":"I feel much better today.","english":"I feel much better today."}]');
 
   insert into calls (id, patient_id, chert_call_id, room_name, kind, language, started_at, ended_at, transcript)
-  select md5('pillpal-seed:' || pid || ':call:' || c.n)::uuid, pid, 'seed-call-' || c.n,
+  select encode(digest('pillpal-seed:' || pid || ':call:' || c.n, 'sha256'), 'hex')::uuid, pid, 'seed-call-' || c.n,
          'pillpal-check_in-seed' || c.n, 'check_in', c.language,
          ((today - c.d) + time '08:05') at time zone tz,
          ((today - c.d) + time '08:11') at time zone tz,
@@ -96,8 +98,8 @@ begin
     language = excluded.language, transcript = excluded.transcript;
 
   insert into check_ins (id, call_id, patient_id, mood, symptoms, visual_notes, quotes, risk_level, summary, created_at)
-  select md5('pillpal-seed:' || pid || ':checkin:' || c.n)::uuid,
-         md5('pillpal-seed:' || pid || ':call:' || c.n)::uuid, pid,
+  select encode(digest('pillpal-seed:' || pid || ':checkin:' || c.n, 'sha256'), 'hex')::uuid,
+         encode(digest('pillpal-seed:' || pid || ':call:' || c.n, 'sha256'), 'hex')::uuid, pid,
          c.mood, c.symptoms, c.visual_notes, c.quotes, c.risk, c.summary,
          ((today - c.d) + time '08:11') at time zone tz
   from seed_calls c
@@ -107,7 +109,7 @@ begin
 
   -- one acknowledged orange alert
   insert into alerts (id, patient_id, level, reason, sent_to, created_at, acknowledged_at)
-  values (md5('pillpal-seed:' || pid || ':alert:1')::uuid, pid, 'orange',
+  values (encode(digest('pillpal-seed:' || pid || ':alert:1', 'sha256'), 'hex')::uuid, pid, 'orange',
           'Missed evening Metformin for the second time this week; tiredness and afternoon dizziness reported',
           'caregiver',
           ((today - 2) + time '19:45') at time zone tz,
@@ -116,7 +118,7 @@ begin
 
   -- memories
   insert into memories (id, patient_id, fact, created_at)
-  select md5('pillpal-seed:' || pid || ':memory:' || x.n)::uuid, pid, x.fact,
+  select encode(digest('pillpal-seed:' || pid || ':memory:' || x.n, 'sha256'), 'hex')::uuid, pid, x.fact,
          ((today - (7 - (x.n - 1) * 2)) + time '09:00') at time zone tz
   from (values (1, 'Granddaughter Lily visits on Sundays.'),
                (2, 'Loves gardening; growing tomatoes this year.'),
