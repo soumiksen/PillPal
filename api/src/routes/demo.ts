@@ -7,6 +7,7 @@ import { findDoseEvent, getMedication, getPatient, insertDoseEvent, updateDoseEv
 import { jsonBody } from "../lib/http.js";
 import { patientPhone, reminderTemplate } from "../lib/notices.js";
 import { nearestSlot } from "../lib/time.js";
+import { assertCareTeam, requireUser } from "../lib/auth.js";
 
 export const demo = new Hono();
 
@@ -16,8 +17,9 @@ export const demo = new Hono();
  * Uses the pending dose_event for the med's nearest scheduled time (creating it if needed); if that
  * slot is already resolved, a fresh pending event is created at "now" so the demo can be re-run.
  */
-demo.post("/remind", async (c) => {
+demo.post("/remind", requireUser, async (c) => {
   const body = await jsonBody(c, DemoRemindBody);
+  await assertCareTeam(c, body.patient_id);
   const [patient, med] = await Promise.all([getPatient(body.patient_id), getMedication(body.medication_id)]);
   if (med.patient_id !== patient.id) throw new HTTPException(409, { message: "medication_not_for_patient" });
   const phone = patientPhone(patient);

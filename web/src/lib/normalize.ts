@@ -12,6 +12,7 @@ export const toPatient = (r: PatientRow): Patient => ({
   caregiver_name: r.caregiver_name ?? "Caregiver",
   caregiver_phone: r.caregiver_phone ?? "",
   doctor_name: r.doctor_name ?? "Doctor",
+  share_code: r.share_code ?? "",
 });
 
 export const toMedication = (r: MedicationRow): Medication => ({

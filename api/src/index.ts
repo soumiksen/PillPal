@@ -8,7 +8,6 @@ import { startEventStream } from "./chert/events.js";
 import { facetime } from "./chert/facetime.js";
 import { sharedMessaging } from "./chert/messaging.js";
 import { startSharedPoller } from "./chert/shared-poll.js";
-import { startScheduler } from "./scheduler.js";
 import { calls } from "./routes/calls.js";
 import { devChert, devTools, webhooks } from "./routes/chert.js";
 import { demo } from "./routes/demo.js";
@@ -22,6 +21,7 @@ import { patients } from "./routes/patients.js";
 import { reports } from "./routes/reports.js";
 import { rx } from "./routes/rx.js";
 import { symptoms } from "./routes/symptoms.js";
+import { startScheduler } from "./scheduler.js";
 
 const app = new Hono();
 

@@ -9,6 +9,7 @@ import {
   type WeeklyBriefData,
 } from "@pillpal/shared";
 import { db } from "../db.js";
+import { assertCareTeam, requireUser } from "../lib/auth.js";
 import { activeMeds, getPatient, must } from "../lib/data.js";
 import { jsonBody } from "../lib/http.js";
 import { startOfZonedDay, zonedDate } from "../lib/time.js";
@@ -16,8 +17,9 @@ import { startOfZonedDay, zonedDate } from "../lib/time.js";
 export const reports = new Hono();
 
 /** Web: gather the last 7 days (7 full America/Chicago days plus today so far) → ai.weeklyBrief → reports row → Brief. */
-reports.post("/generate", async (c) => {
+reports.post("/generate", requireUser, async (c) => {
   const { patient_id } = await jsonBody(c, GenerateReportBody);
+  await assertCareTeam(c, patient_id);
   const patient = await getPatient(patient_id);
   const from = startOfZonedDay(new Date(Date.now() - 7 * 86_400_000));
   const d = zonedDate(from);

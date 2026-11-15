@@ -1,6 +1,6 @@
 /**
  * Seven days of demo history for the existing demo patient "Rose" (run `npm run seed:patient` first).
- * Same data and ids as supabase/seed.sql: every row id is md5("pillpal-seed:<patient id>:<key>") as a
+ * Same data and ids as supabase/seed.sql: every row id is sha256("pillpal-seed:<patient id>:<key>") as a
  * uuid, and rows are upserted on id, so re-running never duplicates (dates shift to the last 7 days).
  * No phone numbers are written. Prints row counts only.
  *
@@ -17,7 +17,7 @@ function die(step: string, err: { code?: string; message: string }): never {
 }
 
 const seedId = (patientId: string, key: string): string => {
-  const h = createHash("md5").update(`pillpal-seed:${patientId}:${key}`).digest("hex");
+  const h = createHash("sha256").update(`pillpal-seed:${patientId}:${key}`).digest("hex");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 };
 

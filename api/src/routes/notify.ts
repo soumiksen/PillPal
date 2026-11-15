@@ -4,6 +4,7 @@ import * as ai from "@pillpal/ai";
 import { DoseChangeBody, type DoseChangeResponse, type PatientRow } from "@pillpal/shared";
 import { messaging } from "../chert/messaging.js";
 import { db } from "../db.js";
+import { assertCareTeam, requireUser } from "../lib/auth.js";
 import { getMedication, getPatient, must } from "../lib/data.js";
 import { jsonBody } from "../lib/http.js";
 import { caregiverPhone, displayName, patientPhone, textCaregiver } from "../lib/notices.js";
@@ -37,8 +38,9 @@ async function careChatPost(patient: PatientRow, text: string): Promise<Sent | u
  * The API relays the doctor's change; it never invents one and does not edit the medication row.
  * Response: the contract fields plus `messages` (kinds + ids only).
  */
-notify.post("/dose-change", async (c) => {
+notify.post("/dose-change", requireUser, async (c) => {
   const body = await jsonBody(c, DoseChangeBody);
+  await assertCareTeam(c, body.patient_id);
   const [patient, med] = await Promise.all([getPatient(body.patient_id), getMedication(body.medication_id)]);
   if (med.patient_id !== patient.id) throw new HTTPException(409, { message: "medication_not_for_patient" });
   const phone = patientPhone(patient);

@@ -82,6 +82,7 @@ async function tickPatient(patient: PatientRow, now: Date, s: TickSummary): Prom
     for (const t of med.times ?? []) {
       const at = zonedTime(today, t);
       if (!at || at > now || now.getTime() - at.getTime() >= missedMs) continue;
+      if (med.created_at && at.getTime() < new Date(med.created_at).getTime()) continue;
       if (have.has(`${med.id}|${at.getTime()}`)) continue;
       const ev = await insertDoseEvent({
         patient_id: patient.id,

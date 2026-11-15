@@ -8,6 +8,7 @@ import {
 import { db } from "../db.js";
 import { activeMeds, dueNow, getPatient, must, mustOne, notFound, recentCheckIns, recentMemories } from "../lib/data.js";
 import { ValidationError, jsonBody, uuidParam } from "../lib/http.js";
+import { addToCareTeam, assertCareTeam, currentUser, requireUser } from "../lib/auth.js";
 
 export const patients = new Hono();
 
@@ -30,14 +31,18 @@ patients.get("/:id/context", async (c) => {
 });
 
 /** Web onboarding form. */
-patients.post("/", async (c) => {
+patients.post("/", requireUser, async (c) => {
+  const user = currentUser(c);
   const body = await jsonBody(c, CreatePatientBody);
   const row = mustOne("insert patient", await db.from("patients").insert(body).select("id").single());
+  // Whoever sets the patient up is on their care team.
+  await addToCareTeam(user.id, row.id, user.role);
   return c.json({ id: row.id } satisfies IdResponse, 201);
 });
 
-patients.patch("/:id", async (c) => {
+patients.patch("/:id", requireUser, async (c) => {
   const id = uuidParam(c, "id");
+  await assertCareTeam(c, id);
   const body = await jsonBody(c, UpdatePatientBody);
   if (Object.keys(body).length === 0) {
     throw new ValidationError([{ path: "(body)", message: "Nothing to update" }]);
