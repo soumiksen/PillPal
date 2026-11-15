@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { Uuid } from "@pillpal/shared";
 import { handleEvent, verifyWebhookSignature, webhookSecret } from "../chert/events.js";
+import { callLine } from "../calls/index.js";
 import { facetime, mockFaceTime } from "../chert/facetime.js";
 import { mockOutbox } from "../chert/messaging.js";
 import type { ChertEnvelope, MessageReceivedEvent, ReactionEvent } from "../chert/types.js";
@@ -115,6 +116,9 @@ export const devTools = new Hono();
 
 /** Run one scheduler pass now (same code as the cron tick). → counts only. */
 devTools.post("/scheduler/tick", async (c) => c.json(await safeTick()));
+
+/** Who holds the call line, either transport (room and kind only). */
+devTools.get("/call/line", (c) => c.json({ transport: callLine.transport, line: callLine.active() }));
 
 /** Who holds the FaceTime line (ids and kind only). */
 devTools.get("/facetime/line", (c) => {

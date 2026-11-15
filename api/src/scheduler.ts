@@ -4,7 +4,10 @@
  * Each tick, per patient:
  *   1. a med time that came due in the last MISSED_AFTER_MIN with no dose_event → pending dose_event +
  *      reminder text in the patient's language (ai.translate), message id saved for the ❤ tapback
- *   2. pending > REMINDER_TIMEOUT_MIN with no call on the line → dial(patient, "dose"), once per dose
+ *   2. facetime: pending > REMINDER_TIMEOUT_MIN with no call on the line → dial(patient, "dose"), once per dose.
+ *      web (CALL_TRANSPORT=web): ring the patient's app at the dose time; if nobody answers (45 s ring timeout)
+ *      or the line was busy, ring again after REMINDER_TIMEOUT_MIN, at most WEB_DOSE_ATTEMPTS times per dose.
+ *      A declined or answered call is not retried.
  *   3. pending > MISSED_AFTER_MIN → missed; 2+ missed today → orange alert + caregiver text (once a day)
  *   4. 3 taken in a row (newest today) → 🎉 celebration message, once per streak
  *   5. pills_left ≤ 5 → caregiver text + pharmacy info, once a day per med (also checked on every "taken")
@@ -13,7 +16,8 @@
 import cron from "node-cron";
 import * as ai from "@pillpal/ai";
 import type { DoseEventRow, MedicationRow, PatientRow } from "@pillpal/shared";
-import { LineBusyError, facetime } from "./chert/facetime.js";
+import { callLine } from "./calls/index.js";
+import { LineBusyError } from "./chert/facetime.js";
 import { messaging } from "./chert/messaging.js";
 import { db } from "./db.js";
 import { env } from "./env.js";
@@ -47,6 +51,20 @@ async function sendReminder(patient: PatientRow, med: MedicationRow, ev: DoseEve
     console.error(`[scheduler] reminder failed: ${(err as Error).message}`);
     return false;
   }
+}
+
+const WEB_DOSE_ATTEMPTS = 2;
+/** dose_event id → web ring attempts (call ids, newest last) and when the last one started. */
+const webAttempts = new Map<string, { calls: string[]; at: number }>();
+
+/** Web transport: should this pending dose ring now? */
+function webShouldRing(ev: DoseEventRow, now: Date, reminderMs: number): boolean {
+  const a = webAttempts.get(ev.id);
+  if (!a) return true;
+  if (a.calls.length >= WEB_DOSE_ATTEMPTS) return false;
+  const last = callLine.outcome(a.calls.at(-1)!);
+  if (last === "answered" || last === "declined" || last === "ringing") return false;
+  return now.getTime() - a.at >= reminderMs;
 }
 
 async function alreadyDialed(patientId: string, since: string): Promise<boolean> {
@@ -105,10 +123,32 @@ async function tickPatient(patient: PatientRow, now: Date, s: TickSummary): Prom
       await updateDoseEvent(ev.id, { status: "missed" });
       ev.status = "missed";
       s.missed++;
-    } else if (age > reminderMs && ev.chert_message_id && !dialedThisTick && !facetime.activeLine()) {
+    } else if (callLine.transport === "web") {
+      if (age < 0 || dialedThisTick || callLine.active() || !webShouldRing(ev, now, reminderMs)) continue;
+      // After a restart the map is empty: one dose call already on record counts as the first attempt.
+      if (!webAttempts.has(ev.id) && (await alreadyDialed(patient.id, ev.scheduled_at))) {
+        webAttempts.set(ev.id, { calls: ["(before restart)"], at: now.getTime() });
+        continue;
+      }
+      try {
+        const placed = await callLine.dial(patient.id, "dose");
+        // One call covers every medicine due at this time (Pal sees them all in due_now).
+        for (const other of events) {
+          if (other.status !== "pending" || other.scheduled_at !== ev.scheduled_at) continue;
+          const a = webAttempts.get(other.id) ?? { calls: [], at: 0 };
+          a.calls.push(placed.call_id);
+          a.at = now.getTime();
+          webAttempts.set(other.id, a);
+        }
+        dialedThisTick = true;
+        s.dials++;
+      } catch (err) {
+        if (!(err instanceof LineBusyError)) console.error(`[scheduler] dose call failed: ${(err as Error).message}`);
+      }
+    } else if (age > reminderMs && ev.chert_message_id && !dialedThisTick && !callLine.active()) {
       if (await alreadyDialed(patient.id, ev.scheduled_at)) continue;
       try {
-        await facetime.dial(patient.id, "dose");
+        await callLine.dial(patient.id, "dose");
         dialedThisTick = true;
         s.dials++;
       } catch (err) {

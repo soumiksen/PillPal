@@ -54,10 +54,26 @@ The exact DDL is in [`supabase/schema.sql`](../supabase/schema.sql).
 | `POST /symptoms` · `POST /memories` | agent | `{patient_id, name, severity, quote}` · `{patient_id, fact}` |
 | `POST /calls/started` · `POST /calls/ended` | agent | `{patient_id, room_name, chert_call_id?, kind}` · `{room_name, transcript, language, vision_events[]}` → runs `ai.extractCheckIn` |
 | `POST /escalate` | agent | `{patient_id, room_name, reason, summary}` → red alert iMessage, end 1:1 call, start group FaceTime |
-| `POST /dial` | web demo button, scheduler | `{patient_id, kind:"check_in"}` → `{chert_call_id, room_name}` |
+| `POST /dial` | web demo button, scheduler | `{patient_id, kind:"check_in"\|"dose"}` → `{chert_call_id (null for web calls), room_name, call_id}` |
+| `POST /demo/call-at` | demo, scripts (`x-demo-code` header or signed-in user) | `{patient_id, at:"HH:MM", kind}` → rings the patient's app at that America/Chicago time |
 | `POST /demo/remind` | web | `{patient_id, medication_id}` → tapback reminder now |
 | `POST /reports/generate` | web | `{patient_id}` → `Brief` (calls `ai.weeklyBrief`) |
 | `POST /notify/dose-change` | web | `{patient_id, medication_id, old_dose, new_dose, doctor_note}` → text + voice note + group chat |
+
+### Web calls (`CALL_TRANSPORT=web`, default)
+
+Our own FaceTime-style home-screen apps replace Chert FaceTime in the call path (Chert iMessage stays for texts).
+`CALL_TRANSPORT=facetime` restores the old path. Types: `packages/shared/src/calls.ts`.
+
+- Signalling: Supabase Realtime **broadcast** (no tables). Channels `pillpal:patient:<patient_id>` and
+  `pillpal:caregiver:<patient_id>`. API → app: `ring {call_id, room_name, kind, from}`, `cancel {call_id}`.
+  App → API: `accepted` / `declined` / `ended {call_id, role}`.
+- `dial`: LiveKit room `pillpal-<kind>-<short id>` → dispatch `AGENT_NAME` with `{patient_id, kind, transport:"web"}`
+  → `calls` row → ring the patient. 45 s with no accept → `cancel`, no answer. One active call at a time.
+- Escalation keeps the room and rings the caregiver's app (`from` = patient's name); with no active call a new
+  room rings both phones. The caregiver iMessage alert is still sent. Never calls 911.
+- Room closes when no human (`patient-web-*`, `caregiver-web-*`) is left.
+- Web route `POST /api/call-token {role, room_name, code}` → `{url, token, identity}` (code = `DEMO_ACCESS_CODE`).
 
 ## 5.4 `@pillpal/ai` functions (AI Eng. builds; Backend calls)
 

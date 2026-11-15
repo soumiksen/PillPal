@@ -155,7 +155,7 @@ export const MemoryBody = z.object({
 });
 export type MemoryBody = z.infer<typeof MemoryBody>;
 
-export const CallKind = z.enum(["check_in", "reminder", "group", "inbound"]);
+export const CallKind = z.enum(["check_in", "reminder", "group", "inbound", "dose", "escalation"]);
 export type CallKind = z.infer<typeof CallKind>;
 
 /** POST /calls/started → IdResponse */
@@ -177,8 +177,9 @@ export const CallEndedBody = z.object({
 export type CallEndedBody = z.infer<typeof CallEndedBody>;
 
 export const CallEndedResponse = z.object({
-  check_in_id: Uuid,
-  check_in: CheckInExtract,
+  /** null when the call had no conversation (unanswered web call): no check-in is written. */
+  check_in_id: Uuid.nullable(),
+  check_in: CheckInExtract.nullable(),
 });
 export type CallEndedResponse = z.infer<typeof CallEndedResponse>;
 
@@ -188,6 +189,8 @@ export const EscalateBody = z.object({
   room_name: z.string(),
   reason: z.string(),
   summary: z.string(),
+  /** "patient" when she asked for her caregiver herself (web call transport). */
+  requested_by: z.enum(["patient", "pal", "system"]).optional(),
 });
 export type EscalateBody = z.infer<typeof EscalateBody>;
 
@@ -200,13 +203,16 @@ export type EscalateResponse = z.infer<typeof EscalateResponse>;
 /** POST /dial */
 export const DialBody = z.object({
   patient_id: Uuid,
-  kind: z.literal("check_in"),
+  kind: z.enum(["check_in", "dose"]).default("check_in"),
 });
 export type DialBody = z.infer<typeof DialBody>;
 
 export const DialResponse = z.object({
-  chert_call_id: z.string(),
+  /** Chert FaceTime call id (CALL_TRANSPORT=facetime); null for web calls. */
+  chert_call_id: z.string().nullable(),
   room_name: z.string(),
+  /** calls.id */
+  call_id: z.string().optional(),
 });
 export type DialResponse = z.infer<typeof DialResponse>;
 
