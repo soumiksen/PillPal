@@ -63,6 +63,8 @@ export default defineAgent({
         voice: "Kore",
         temperature: 0.6,
         instructions: buildInstructions(context),
+        // Thinking adds seconds before every spoken reply; Pal needs speed, not deliberation.
+        thinkingConfig: { thinkingBudget: Number(process.env.GEMINI_THINKING_BUDGET ?? 0), includeThoughts: false },
         inputAudioTranscription: {},
         outputAudioTranscription: {},
       }),
@@ -99,7 +101,8 @@ export default defineAgent({
     await session.start({
       agent,
       room: ctx.room,
-      inputOptions: { videoEnabled: true },
+      // Video frames go to Claude via the FrameGrabber, not to Gemini Live (less load, fewer session errors).
+      inputOptions: { videoEnabled: false },
     });
     await ctx.waitForParticipant();
     session.generateReply({
