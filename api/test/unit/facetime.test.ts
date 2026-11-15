@@ -59,7 +59,7 @@ test("live 1:1 dial: room → dispatch → bridge token → POST /v1/calls with 
   assert.equal(body.remote_participant_identity, "pillpal-agent");
 
   const claims = decode(body.participant_token as string);
-  assert.match(claims.sub, /^bridge-[0-9a-f-]{36}$/);
+  assert.match(claims.sub, /^chert-bridge-[0-9a-f-]{36}$/);
   assert.equal(claims.video.room, placed.room_name);
   assert.equal(claims.video.roomJoin, true);
   assert.equal(claims.video.canPublish, true);

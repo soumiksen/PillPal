@@ -5,7 +5,7 @@
  * live dial():
  *   1. LiveKit room `pillpal-<kind>-<short uuid>`
  *   2. AgentDispatchClient.createDispatch(room, AGENT_NAME, metadata {patient_id, kind})
- *   3. bridge token: identity bridge-<uuid>, roomJoin/canPublish/canSubscribe on that room only,
+ *   3. bridge token: identity chert-bridge-<uuid>, roomJoin/canPublish/canSubscribe on that room only,
  *      integer nbf/exp (jose), ttl 3600 s (≤ 7200, and > 90 s left at allocation)
  *   4. POST {FACETIME_BASE}/v1/calls {direction:"outbound", mode:"customer_managed", line_id, destination,
  *      destination_type:"phone", media:{audio:true, video:true}, livekit_url, participant_token,
@@ -129,7 +129,7 @@ export class LiveChertFaceTime implements ChertFaceTime {
     await this.lk.createRoom(room);
     try {
       await this.lk.dispatchAgent(room, { patient_id: ctx.patient_id, kind: ctx.kind });
-      const identity = `bridge-${randomUUID()}`;
+      const identity = `chert-bridge-${randomUUID()}`;
       const participant_token = await this.lk.bridgeToken(room, identity);
       const body = {
         direction: "outbound",
