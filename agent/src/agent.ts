@@ -10,6 +10,7 @@ import { RoomEvent, TrackKind, type RemoteParticipant, type Room } from "@liveki
 import { fileURLToPath } from "node:url";
 import { api } from "./api.js";
 import { FrameGrabber } from "./frames.js";
+import { installMouthTap, MouthLevel } from "./avatar/audio-tap.js";
 import { startAvatar, type Avatar } from "./avatar/publish.js";
 import { buildInstructions } from "./prompt.js";
 import { buildTools, escalateNow, type CallState } from "./tools.js";
@@ -217,6 +218,15 @@ export default defineAgent({
       inputOptions: { videoEnabled: false },
     });
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => avatar?.controller.setState(ev.newState));
+    // Helen's mouth follows Pal's real voice: a read-only tap at the head of the audio output chain.
+    if (avatar) {
+      try {
+        const level = new MouthLevel();
+        if (installMouthTap(session, level)) avatar.controller.setMouthLevel(() => level.read());
+      } catch {
+        /* procedural mouth stays in charge */
+      }
+    }
     const caller = await ctx.waitForParticipant();
     // A call placed outside POST /dial (scripts/outbound-call.ts) announces its Chert call id in the room metadata.
     // Tell the backend as soon as it appears (not only at greeting time: the greeting can fire first, via caller audio)
