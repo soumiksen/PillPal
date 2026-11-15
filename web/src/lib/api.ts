@@ -21,6 +21,7 @@ const ERRORS: Record<string, string> = {
   sign_in_required: "Your session ended. Sign in again.",
   not_on_care_team: "You're not on this patient's care team.",
   patient_has_no_phone: "Add the patient's phone number first.",
+  doctor_only: "Only the doctor can change a prescription.",
 };
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {

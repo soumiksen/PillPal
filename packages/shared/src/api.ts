@@ -101,10 +101,33 @@ export const CreateMedicationBody = z.object({
 export type CreateMedicationBody = z.infer<typeof CreateMedicationBody>;
 
 /** PATCH /medications/:id → IdResponse */
-export const UpdateMedicationBody = CreateMedicationBody.omit({ patient_id: true })
-  .partial()
-  .extend({ active: z.boolean().optional() });
+/** 24-hour dose time, e.g. 08:00. */
+const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24-hour times like 08:00");
+
+/**
+ * Every field optional and WITHOUT defaults. Built from CreateMedicationBody.partial() this injected
+ * avoid_foods: [] into every PATCH, so changing only a dose silently erased the medicine's avoid-foods list.
+ * `active: false` stops a medicine (history is kept).
+ */
+export const UpdateMedicationBody = z.object({
+  drug: z.string().trim().min(1).optional(),
+  strength: z.string().trim().min(1).optional(),
+  dose: z.string().trim().min(1).optional(),
+  times: z.array(HHMM).min(1).optional(),
+  food_rule: FoodRule.optional(),
+  avoid_foods: z.array(z.string().trim().min(1)).optional(),
+  pills_left: z.number().int().min(0).optional(),
+  refill_info: z.string().optional(),
+  confirmed_by: z.string().optional(),
+  pill_photo_b64: z.string().optional(),
+  active: z.boolean().optional(),
+});
 export type UpdateMedicationBody = z.infer<typeof UpdateMedicationBody>;
+
+/** Changing any of these changes the prescription itself: doctors only (pills_left, refill_info and the photo are not). */
+export const PRESCRIPTION_FIELDS = ["drug", "strength", "dose", "times", "food_rule", "avoid_foods", "active"] as const;
+export const touchesPrescription = (patch: Record<string, unknown>): boolean =>
+  PRESCRIPTION_FIELDS.some((k) => patch[k] !== undefined);
 
 /** POST /doses → IdResponse */
 export const CreateDoseBody = z.object({
