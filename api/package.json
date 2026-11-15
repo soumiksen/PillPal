@@ -5,16 +5,19 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "typecheck": "tsc -b",
+    "dev": "tsx watch --env-file=../.env src/index.ts",
+    "start": "node --env-file=../.env dist/index.js",
+    "typecheck": "tsc -b && tsc -p scripts/tsconfig.json",
     "build": "tsc -b",
-    "start": "node dist/index.js"
+    "seed:patient": "tsx --env-file=../.env scripts/seed-demo-patient.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",
     "@pillpal/ai": "*",
     "@pillpal/shared": "*",
-    "hono": "^4.6.14"
+    "@supabase/supabase-js": "^2.119.0",
+    "hono": "^4.6.14",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "tsx": "^4.19.2"
