@@ -1,0 +1,28 @@
+{
+  "name": "@pillpal/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/agent.ts dev",
+    "start": "node dist/agent.js start",
+    "typecheck": "tsc -b",
+    "build": "tsc -b",
+    "test": "node --import tsx --test src/*.test.ts",
+    "dev:agent": "LIVEKIT_URL=ws://localhost:7880 LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=secret API_URL=http://localhost:8788 AGENT_NAME=pillpal-agent PATIENT_ID=00000000-0000-4000-8000-000000000001 node --env-file-if-exists=../.env --import tsx src/agent.ts dev --log-level info",
+    "dev:local": "LIVEKIT_URL=ws://localhost:7880 LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=secret node --env-file-if-exists=../.env --import tsx dev/local.ts"
+  },
+  "dependencies": {
+    "@livekit/agents": "^1.10.0",
+    "@livekit/agents-plugin-google": "^1.10.0",
+    "@livekit/rtc-node": "^1.2.2",
+    "@pillpal/ai": "*",
+    "@pillpal/shared": "*",
+    "sharp": "^0.34.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "livekit-server-sdk": "^2.19.3",
+    "tsx": "^4.19.2"
+  }
+}
