@@ -22,13 +22,26 @@ const EnvSchema = z.object({
   CHERT_API_KEY: optional,
   CHERT_PROJECT_ID: optional,
   CHERT_LINE_ID: optional,
+  /**
+   * mock (default): no Chert request is ever made; sends go to an in-memory outbox and
+   * /dev/chert/* routes inject events. live: real HTTP + SSE + signed webhook.
+   */
+  CHERT_MODE: z.enum(["mock", "live"]).default("mock"),
+  // Messaging API (console.trychert.com/api/v1). Optional in mock, required in live.
   CHERT_MSG_TOKEN: optional,
   CHERT_FROM: optional,
   CHERT_WEBHOOK_SECRET: optional,
+  /** Only for multi-tenant Chert accounts (sent as x-chert-tenant). */
+  CHERT_TENANT: optional,
   LIVEKIT_URL: optional,
   LIVEKIT_API_KEY: optional,
   LIVEKIT_API_SECRET: optional,
   AGENT_NAME: z.string().default("pillpal-agent"),
+}).superRefine((e, ctx) => {
+  if (e.CHERT_MODE !== "live") return;
+  for (const name of ["CHERT_MSG_TOKEN", "CHERT_FROM", "CHERT_WEBHOOK_SECRET"] as const) {
+    if (!e[name]) ctx.addIssue({ code: "custom", path: [name], message: "required when CHERT_MODE=live" });
+  }
 });
 
 export type Env = z.infer<typeof EnvSchema>;
