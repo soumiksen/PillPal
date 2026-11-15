@@ -10,14 +10,15 @@ import { RoomEvent, TrackKind, type RemoteParticipant, type Room } from "@liveki
 import { fileURLToPath } from "node:url";
 import { api } from "./api.js";
 import { FrameGrabber } from "./frames.js";
+import { startAvatar, type Avatar } from "./avatar/publish.js";
 import { buildInstructions } from "./prompt.js";
 import { buildTools, type CallState } from "./tools.js";
 
 const GEMINI_LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025";
 
-function parseMeta(raw: string | undefined): { patient_id?: string; kind?: string } {
+function parseMeta(raw: string | undefined): { patient_id?: string; kind?: string; outbound?: boolean } {
   try {
-    return raw ? (JSON.parse(raw) as { patient_id?: string; kind?: string }) : {};
+    return raw ? (JSON.parse(raw) as { patient_id?: string; kind?: string; outbound?: boolean }) : {};
   } catch {
     return {};
   }
@@ -88,6 +89,7 @@ export default defineAgent({
     const kind = (["check_in", "reminder", "group", "inbound"] as const).find((k) => k === meta.kind) ?? "inbound";
     await api.callStarted({ patient_id: patientId, room_name: roomName, kind }).catch(() => undefined);
 
+    let avatar: Avatar | null = null;
     const state: CallState = {
       patientId,
       roomName,
@@ -101,6 +103,23 @@ export default defineAgent({
       escalated: false,
       ended: false,
       finish: async () => undefined,
+      onTool: (name, phase, result) => {
+        const c = avatar?.controller;
+        if (!c) return;
+        if (phase === "start") {
+          if (name === "check_meal" || name === "verify_pill") c.show("looking");
+          else if (name === "escalate_now") c.show("serious");
+          return;
+        }
+        const verdict = (result as { verdict?: string } | undefined)?.verdict;
+        if (name === "check_meal" || name === "verify_pill") {
+          if (verdict === "match" || verdict === "ok") c.show("pleased", 3500);
+          else if (verdict === "mismatch" || verdict === "not_allowed" || verdict === "unsure" || verdict === "camera_off") c.show("concerned", 4000);
+          else c.clear();
+        } else if (name === "log_dose") c.show("pleased", 3000);
+        else if (name === "end_call") c.show("goodbye");
+        // escalate_now stays serious-calm until the call ends
+      },
     };
 
     const agent = new voice.Agent({
@@ -144,6 +163,7 @@ export default defineAgent({
       setTimeout(() => ctx.shutdown("call ended"), 4000);
     };
     ctx.addShutdownCallback(async () => {
+      await avatar?.stop().catch(() => undefined);
       await state.finish(); // caller hung up without end_call
     });
 
@@ -154,18 +174,27 @@ export default defineAgent({
       // Video frames go to Claude via the FrameGrabber, not to Gemini Live (less load, fewer session errors).
       inputOptions: { videoEnabled: false },
     });
+    avatar = await startAvatar(ctx.room);
+    session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => avatar?.controller.setState(ev.newState));
     const caller = await ctx.waitForParticipant();
     // Under Chert, greet on the bridge_ready room signal (media is live). Anywhere else (local test page),
     // or if the signal never comes, fall back to: caller audio subscribed + a short beat.
     const underChert = caller.identity.startsWith("chert-bridge-");
     let how = "fallback";
-    if (underChert && (await waitForBridgeReady(ctx.room, 9000))) {
+    // Outbound: the bridge joins while the phone is still ringing, so wait much longer; if she never
+    // answers (no signal), stay quiet rather than greeting an empty line.
+    const outbound = meta.outbound === true;
+    if (underChert && (await waitForBridgeReady(ctx.room, outbound ? 90_000 : 9000))) {
       how = "bridge_ready";
+    } else if (outbound) {
+      console.log("[pal] outbound call never became ready; not greeting");
+      return;
     } else {
       await waitForCallerAudio(ctx.room, caller, 8000);
       await new Promise((r) => setTimeout(r, Number(process.env.GREETING_DELAY_MS ?? 2500)));
     }
     console.log(`[pal] greeting via ${how} (+${Date.now() - startedAt} ms since job start)`);
+    avatar?.controller.hello();
     session.generateReply({
       instructions: `Greet ${context.patient.preferred_name ?? context.patient.name ?? "the patient"} warmly by name and ask one friendly question.`,
     });

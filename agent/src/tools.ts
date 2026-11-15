@@ -20,6 +20,8 @@ export interface CallState {
   ended: boolean;
   lastFrameB64?: string;
   finish: () => Promise<void>; // end the call (idempotent)
+  /** Visual-only hook for the avatar; must never affect tool behaviour. */
+  onTool?: (name: string, phase: "start" | "end", result?: unknown) => void;
 }
 
 const log = (s: CallState, e: Omit<VisionEvent, "at">) => s.visionEvents.push({ at: new Date().toISOString(), ...e });
@@ -31,7 +33,7 @@ export function buildTools(s: CallState) {
   };
   const medId = z.string().optional().describe("medication_id of the medicine due now (omit if only one is due)");
 
-  return {
+  const tools = {
     get_context: llm.tool({
       description: "Get the patient's profile, what is due now, medicines and recent check-ins. Call once at the start if unsure.",
       execute: async () => {
@@ -163,4 +165,34 @@ export function buildTools(s: CallState) {
       },
     }),
   };
+
+  // Let the avatar react to tool activity without changing what the tools do.
+  for (const [name, t] of Object.entries(tools) as [string, { execute?: (...a: unknown[]) => Promise<unknown> }][]) {
+    const orig = t.execute;
+    if (!orig) continue;
+    t.execute = async (...a: unknown[]) => {
+      try {
+        s.onTool?.(name, "start");
+      } catch {
+        /* visual only */
+      }
+      try {
+        const r = await orig(...a);
+        try {
+          s.onTool?.(name, "end", r);
+        } catch {
+          /* visual only */
+        }
+        return r;
+      } catch (e) {
+        try {
+          s.onTool?.(name, "end");
+        } catch {
+          /* visual only */
+        }
+        throw e;
+      }
+    };
+  }
+  return tools;
 }

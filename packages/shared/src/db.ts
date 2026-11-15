@@ -1,7 +1,11 @@
 /** 5.2 Database rows (supabase/schema.sql). Nullable columns are `.nullable()`. */
 import { z } from "zod";
 
-export const Uuid = z.string().uuid();
+/**
+ * Any 8-4-4-4-12 hex id. Not z.string().uuid(): zod 4 enforces RFC version/variant bits, but Postgres accepts
+ * (and our seed data uses) md5-derived ids that fail that check, which crashed the agent's context parse.
+ */
+export const Uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Invalid UUID");
 /** timestamptz as returned by Supabase (ISO 8601 string). */
 export const Timestamp = z.string();
 /** `date` column, YYYY-MM-DD. */
