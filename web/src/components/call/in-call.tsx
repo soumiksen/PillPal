@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   DisconnectReason,
+  type LocalTrack,
   type LocalVideoTrack,
   type Participant,
   type RemoteTrack,
@@ -14,19 +15,26 @@ import {
   RoomEvent,
   Track,
   VideoPresets,
+  supportsAudioOutputSelection,
 } from "livekit-client";
-import { Mic, MicOff, PhoneOff, SwitchCamera, Video, VideoOff, Volume2 } from "lucide-react";
+import { Ear, Mic, MicOff, PhoneOff, SwitchCamera, Video, VideoOff, Volume2 } from "lucide-react";
 import { identityPrefix, type CallRole, type CallTokenResponse, type RingEvent } from "@pillpal/shared";
+import { CALL_AUDIO } from "./device";
 import { CallerPhoto, RoundButton } from "./parts";
+
+export const CALL_VIDEO = { facingMode: "user" as const, resolution: VideoPresets.h540.resolution };
 
 /** Create inside the Accept tap (iOS audio unlock). */
 export function newCallRoom(): Room {
   return new Room({
     adaptiveStream: true,
     dynacast: true,
-    videoCaptureDefaults: { facingMode: "user", resolution: VideoPresets.h540.resolution },
-    audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    publishDefaults: { simulcast: true },
+    videoCaptureDefaults: CALL_VIDEO,
+    audioCaptureDefaults: CALL_AUDIO,
+    // Remote audio plays only through LiveKit's attached <audio> elements, never a Web Audio graph
+    // (Web Audio output on iOS bypasses the voice-processing path the echo canceller relies on).
+    webAudioMix: false,
+    publishDefaults: { simulcast: true, dtx: true, red: true },
   });
 }
 
@@ -51,12 +59,15 @@ export function InCall({
   role,
   ring,
   room,
+  tracks,
   code,
   onEnded,
 }: {
   role: CallRole;
   ring: RingEvent;
   room: Room;
+  /** Mic + camera opened inside the Accept tap; published the moment the room connects. */
+  tracks: Promise<LocalTrack[]>;
   code: string;
   onEnded: (note: string) => void;
 }) {
@@ -118,6 +129,7 @@ export function InCall({
         if (track.kind === Track.Kind.Audio) {
           const el = track.attach();
           el.setAttribute("playsinline", "true");
+          el.autoplay = true;
           audioBox.current?.appendChild(el);
         }
         bump();
@@ -145,7 +157,7 @@ export function InCall({
 
     void (async () => {
       try {
-        const r = await fetch("/api/call-token", {
+        const tokenReq = fetch("/api/call-token", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -155,16 +167,26 @@ export function InCall({
             name: role === "patient" ? ring.names?.patient : ring.names?.caregiver,
           }),
         });
+        // Token and local media in parallel; both were started inside the Accept tap.
+        const [r, local] = await Promise.all([tokenReq, tracks.catch(() => [] as LocalTrack[])]);
         if (!r.ok) throw new Error(r.status === 401 ? "The access code changed. Open Settings." : "Could not join the call.");
         const { url, token } = (await r.json()) as CallTokenResponse;
         await room.connect(url, token);
-        if (done.current) return void room.disconnect();
+        if (done.current) {
+          local.forEach((t) => t.stop());
+          return void room.disconnect();
+        }
+        // Publish mic first (Pal must hear the patient before greeting), then camera, right on connect.
+        const mic = local.find((t) => t.kind === Track.Kind.Audio);
+        const cam = local.find((t) => t.kind === Track.Kind.Video);
+        if (mic) await room.localParticipant.publishTrack(mic).catch(() => setMicOn(false));
+        else await room.localParticipant.setMicrophoneEnabled(true, CALL_AUDIO).catch(() => setMicOn(false));
+        if (cam) void room.localParticipant.publishTrack(cam).then(bump, () => setCamOn(false));
+        else await room.localParticipant.setCameraEnabled(true, CALL_VIDEO).catch(() => setCamOn(false));
         setPhase("live");
         if (room.remoteParticipants.size > 0) setStartedAt(Date.now());
         checkAlone();
         setNeedsTap(!room.canPlaybackAudio);
-        await room.localParticipant.setMicrophoneEnabled(true).catch(() => setMicOn(false));
-        await room.localParticipant.setCameraEnabled(true).catch(() => setCamOn(false));
         bump();
       } catch (err) {
         setPhase("failed");
@@ -179,7 +201,29 @@ export function InCall({
       window.removeEventListener("pagehide", leaveOnClose);
       if (aloneTimer) clearTimeout(aloneTimer);
     };
-  }, [room, ring, role, code]);
+  }, [room, tracks, ring, role, code]);
+
+  // Speaker / earpiece: only where the browser can pick the output (setSinkId). iPhone Safari cannot, and iOS
+  // already routes a WebRTC call through its voice-processing path with echo cancellation, so it is hidden there.
+  const [outputs, setOutputs] = useState<MediaDeviceInfo[]>([]);
+  const [outputIdx, setOutputIdx] = useState(0);
+  useEffect(() => {
+    if (!supportsAudioOutputSelection()) return;
+    void Room.getLocalDevices("audiooutput", false)
+      .then((d) => setOutputs(d.filter((x) => x.deviceId)))
+      .catch(() => undefined);
+  }, []);
+  const switchOutput = async () => {
+    if (outputs.length < 2) return;
+    const next = (outputIdx + 1) % outputs.length;
+    try {
+      await room.switchActiveDevice("audiooutput", outputs[next]!.deviceId);
+      setOutputIdx(next);
+    } catch {
+      /* keep the current output */
+    }
+  };
+  const outputLabel = (outputs[outputIdx]?.label || "Speaker").toLowerCase().includes("ear") ? "Earpiece" : "Speaker";
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -277,6 +321,11 @@ export function InCall({
           <RoundButton label="Flip" color="bg-white/25" onClick={flip} size={68}>
             <SwitchCamera className="h-8 w-8" aria-hidden />
           </RoundButton>
+          {outputs.length > 1 && (
+            <RoundButton label={outputLabel} color="bg-white/25" onClick={switchOutput} size={68}>
+              {outputLabel === "Earpiece" ? <Ear className="h-8 w-8" aria-hidden /> : <Volume2 className="h-8 w-8" aria-hidden />}
+            </RoundButton>
+          )}
           <RoundButton label="End" color="bg-red-600 active:bg-red-500" onClick={() => finish("Call ended")} size={68}>
             <PhoneOff className="h-8 w-8" aria-hidden />
           </RoundButton>

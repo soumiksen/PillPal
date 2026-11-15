@@ -53,31 +53,44 @@ export function keepAwake(): () => void {
   };
 }
 
-/** Looping ringtone on one <audio> element, unlocked by a tap (iOS plays it later without a gesture). */
+/**
+ * Looping ringtone on one <audio> element. iOS only plays media after a tap, so `arm()` must run inside a tap (Start,
+ * Decline, End). Before a call joins, `release()` fully stops and unloads it so the ringtone's audio session cannot
+ * interfere with the call's echo cancellation; the next tap re-arms it.
+ * The only AudioContext ever created is a one-shot unlock that is closed right away (call audio never uses Web Audio).
+ */
 export class Ringer {
   private el: HTMLAudioElement | null = null;
   private buzz: ReturnType<typeof setInterval> | null = null;
+  armed = false;
 
-  async unlock(): Promise<void> {
+  /** Call from a tap. → true when the ringtone can play later without a tap. */
+  async arm(): Promise<boolean> {
+    // play() must start synchronously inside the tap (iOS); the AudioContext unlock runs alongside it.
+    const ctxUnlock = unlockAudioOnce();
     if (!this.el) {
       this.el = new Audio("/call/ringtone.wav");
       this.el.loop = true;
       this.el.preload = "auto";
+      this.el.setAttribute("playsinline", "true");
     }
     try {
       this.el.muted = true;
-      await this.el.play();
+      const playing = this.el.play();
+      await Promise.all([playing, ctxUnlock]);
       this.el.pause();
       this.el.currentTime = 0;
+      this.armed = true;
     } catch {
-      /* will retry on the next tap */
+      this.armed = false;
     } finally {
-      this.el.muted = false;
+      if (this.el) this.el.muted = false;
     }
+    return this.armed;
   }
 
   start(): void {
-    if (this.el) {
+    if (this.el && this.armed) {
       this.el.currentTime = 0;
       void this.el.play().catch(() => undefined);
     }
@@ -102,12 +115,53 @@ export class Ringer {
       /* unsupported */
     }
   }
+
+  /** Stop and unload completely (before joining a call). Needs `arm()` from a tap to ring again. */
+  release(): void {
+    this.stop();
+    const el = this.el;
+    this.el = null;
+    this.armed = false;
+    if (el) {
+      el.removeAttribute("src");
+      el.load();
+    }
+  }
 }
+
+let unlocked = false;
+/** One AudioContext, used once to unlock audio on iOS (a silent buffer), then closed. */
+async function unlockAudioOnce(): Promise<void> {
+  if (unlocked) return;
+  try {
+    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const src = ctx.createBufferSource();
+    src.buffer = ctx.createBuffer(1, 1, 22050);
+    src.connect(ctx.destination);
+    src.start(0);
+    await ctx.resume().catch(() => undefined);
+    await ctx.close().catch(() => undefined);
+    unlocked = true;
+  } catch {
+    /* the <audio> element unlock still applies */
+  }
+}
+
+/** Mic constraints for calls: the phone's echo canceller on, mono 48 kHz. */
+export const CALL_AUDIO = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1,
+  sampleRate: 48000,
+} as const;
 
 /** Ask for camera + mic once at Start so Accept connects without a permission prompt. */
 export async function primeMedia(): Promise<boolean> {
   try {
-    const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: "user" } });
+    const s = await navigator.mediaDevices.getUserMedia({ audio: CALL_AUDIO, video: { facingMode: "user" } });
     s.getTracks().forEach((t) => t.stop());
     return true;
   } catch {

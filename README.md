@@ -41,16 +41,22 @@ and keeps the screen awake. Leave both apps open on "Waiting for calls".
 On the laptop, run:
 
 ```bash
-npm run demo:up     # [api] CALL_TRANSPORT=web SCHEDULER=on  +  [pal] the agent worker, prefixed logs
+npm run demo:up         # [api] CALL_TRANSPORT=web, scheduler OFF  +  [pal] the agent worker, prefixed logs
+npm run demo:up:sched   # same, with the scheduler ON (reminders + calls at dose times)
 ```
 
-- At each dose time the scheduler rings the patient's app. If nobody answers in 45 s, it rings once more after
+- With the scheduler on, it rings the patient's app at each dose time. Only patients with `consent_at`, their own
+  phone number and active medications are considered. If nobody answers in 45 s, it rings once more after
   `REMINDER_TIMEOUT_MIN`.
 - Ring at a set time: `curl -X POST localhost:8787/demo/call-at -H "x-demo-code: $DEMO_ACCESS_CODE" -H 'content-type: application/json' -d '{"patient_id":"…","at":"14:05","kind":"check_in"}'`
   (America/Chicago time).
 - If the patient asks for her caregiver, or there is a red flag, Pal says "{caregiver} is joining us now" and the
   caregiver's app rings into the same call. The caregiver also gets the iMessage alert. Pal never calls 911.
-- Dry run with no texts sent: `SCHEDULER=off CHERT_MODE=mock npm run demo:up`. Shell values override the defaults.
+- Dry run with no texts sent: `CHERT_MODE=mock npm run demo:up`. Shell values override the defaults.
+- Pal's model: set `PAL_REALTIME_MODEL` (see the list in `agent/src/agent.ts`). VAD tuning: `PAL_VAD_START`,
+  `PAL_VAD_SILENCE_MS`, `PAL_VAD_PREFIX_MS`, `PAL_VAD_END`.
+- Headless check without phones (API + agent running, web on :3000 or `E2E_WEB=https://…`):
+  `npx playwright install chromium && npm run test:e2e:web`. It removes the rows it created when it finishes.
 - To run the web app locally: `npm run dev:demo -w @pillpal/web` (uses the root `.env`).
 - The portal's pill-box dashboard is now at `/dashboard`. `/caregiver` is the phone app.
 

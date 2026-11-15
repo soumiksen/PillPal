@@ -11,13 +11,16 @@
     "check": "npm run -ws --if-present typecheck && npm run -ws --if-present build",
     "build": "npm run -ws --if-present build",
     "dev": "echo \"dev: TODO \u2014 will run web :3000, api :8787, agent together\" && npm run -w @pillpal/api dev",
-    "demo:up": "node scripts/demo-up.mjs"
+    "demo:up": "node scripts/demo-up.mjs",
+    "demo:up:sched": "node scripts/demo-up.mjs --sched",
+    "test:e2e:web": "node scripts/e2e-web-call.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "playwright": "1.64.1"
   }
 }

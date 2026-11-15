@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // npm run demo:up — the laptop side of the phone demo, in one terminal:
-//   [api] PillPal API on :8787 with CALL_TRANSPORT=web and SCHEDULER=on (rings the phone apps at dose times)
+//   [api] PillPal API on :8787 with CALL_TRANSPORT=web (SCHEDULER=off; demo:up:sched rings at dose times)
 //   [pal] the LiveKit agent worker (Pal), registered with LiveKit Cloud
 // Both read the repo-root .env. Ctrl+C stops both. Values from .env are never printed.
 import { spawn } from "node:child_process";
@@ -14,10 +14,12 @@ if (!existsSync(join(root, ".env"))) {
   process.exit(1);
 }
 
-// Demo defaults; a value set in your shell wins (e.g. `SCHEDULER=off CHERT_MODE=mock npm run demo:up` for a dry run).
+// Scheduler is OFF unless you run `npm run demo:up:sched` (or pass --sched). A value set in your shell wins
+// (e.g. `CHERT_MODE=mock npm run demo:up` for a dry run that sends no iMessages).
+const sched = process.argv.includes("--sched");
 const overrides = {
   CALL_TRANSPORT: process.env.CALL_TRANSPORT ?? "web",
-  SCHEDULER: process.env.SCHEDULER ?? "on",
+  SCHEDULER: process.env.SCHEDULER ?? (sched ? "on" : "off"),
   FORCE_COLOR: "1",
 };
 const procs = [
@@ -67,4 +69,4 @@ function shutdown(code = 0) {
 }
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
-console.log("demo:up → [api] CALL_TRANSPORT=web SCHEDULER=on · [pal] agent worker. Ctrl+C stops both.");
+console.log(`demo:up → [api] CALL_TRANSPORT=${overrides.CALL_TRANSPORT} SCHEDULER=${overrides.SCHEDULER} · [pal] agent worker. Ctrl+C stops both.`);

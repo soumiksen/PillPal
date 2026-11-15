@@ -3,6 +3,7 @@
  * facetime (the old Chert FaceTime path, unchanged). Callers use `callLine` and never branch on the transport
  * except where the flows differ (escalation).
  */
+import { RoomServiceClient } from "livekit-server-sdk";
 import type { WebCallKind } from "@pillpal/shared";
 import { facetime } from "../chert/facetime.js";
 import { db } from "../db.js";
@@ -45,21 +46,26 @@ export const webCalls: WebCallService | null =
     : null;
 
 /**
- * After a restart no web call is live (the line lives in memory and LiveKit drops empty rooms), so web-call rows
- * still open are leftovers from a crash or Ctrl+C: close them so dashboards and the scheduler do not see them as live.
+ * Web-call rows still open after a restart are leftovers from a crash or Ctrl+C: close them so dashboards and the
+ * scheduler do not see them as live. Only rows whose LiveKit room no longer exists are closed, so a call that is
+ * really in progress (e.g. served by another API process) is never touched.
  */
 export async function closeOrphanedWebCalls(): Promise<number> {
-  const r = must(
-    "close orphaned web calls",
-    await db
-      .from("calls")
-      .update({ ended_at: new Date().toISOString() })
-      .is("ended_at", null)
-      .is("chert_call_id", null)
-      .like("room_name", "pillpal-%")
-      .select("id"),
-  ) as { id: string }[];
-  return r.length;
+  const open = must(
+    "find open web calls",
+    await db.from("calls").select("id, room_name").is("ended_at", null).is("chert_call_id", null).like("room_name", "pillpal-%"),
+  ) as { id: string; room_name: string }[];
+  if (open.length === 0) return 0;
+  const httpUrl = env.LIVEKIT_URL!.replace(/^ws(s?):\/\//, "http$1://");
+  const live = new Set(
+    (await new RoomServiceClient(httpUrl, env.LIVEKIT_API_KEY!, env.LIVEKIT_API_SECRET!).listRooms(open.map((c) => c.room_name))).map(
+      (r) => r.name,
+    ),
+  );
+  const dead = open.filter((c) => !live.has(c.room_name)).map((c) => c.id);
+  if (dead.length === 0) return 0;
+  must("close orphaned web calls", await db.from("calls").update({ ended_at: new Date().toISOString() }).in("id", dead));
+  return dead.length;
 }
 
 export type LineInfo = { room_name: string; patient_id: string; kind: string; group: boolean } | null;

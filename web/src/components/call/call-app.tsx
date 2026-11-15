@@ -5,11 +5,11 @@
  * Big text and buttons for an older user; works in iPhone Safari standalone mode.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Room } from "livekit-client";
+import { createLocalTracks, type LocalTrack, type Room } from "livekit-client";
 import { Phone, PhoneOff, Settings } from "lucide-react";
 import type { CallRole, RingEvent } from "@pillpal/shared";
-import { keepAwake, loadPrefs, primeMedia, Ringer, savePrefs, type CallPrefs } from "./device";
-import { InCall, newCallRoom } from "./in-call";
+import { CALL_AUDIO, keepAwake, loadPrefs, primeMedia, Ringer, savePrefs, type CallPrefs } from "./device";
+import { CALL_VIDEO, InCall, newCallRoom } from "./in-call";
 import { CallerPhoto, RoundButton } from "./parts";
 import { useCallSignal, type SignalStatus } from "./use-call-signal";
 
@@ -19,13 +19,14 @@ type Screen =
   | { kind: "start" }
   | { kind: "idle"; note?: string }
   | { kind: "incoming"; ring: RingEvent }
-  | { kind: "call"; ring: RingEvent; room: Room };
+  | { kind: "call"; ring: RingEvent; room: Room; tracks: Promise<LocalTrack[]> };
 
 const APP_NAME: Record<CallRole, string> = { patient: "PillPal", caregiver: "PillPal Care" };
 
 export function CallApp({ role }: { role: CallRole }) {
   const [screen, setScreen] = useState<Screen>({ kind: "loading" });
   const [prefs, setPrefs] = useState<CallPrefs | null>(null);
+  const [ringArmed, setRingArmed] = useState(false);
   const ringer = useRef<Ringer | null>(null);
   const screenRef = useRef(screen);
   useEffect(() => {
@@ -68,24 +69,35 @@ export function CallApp({ role }: { role: CallRole }) {
 
   useEffect(() => () => ringer.current?.stop(), []);
 
-  const start = async () => {
+  /** Must run inside a tap (iOS). */
+  const armRinger = () => {
     ringer.current ??= new Ringer();
-    await ringer.current.unlock();
+    void ringer.current.arm().then(setRingArmed);
+  };
+
+  const start = async () => {
+    armRinger();
     void primeMedia();
     setScreen({ kind: "idle" });
   };
 
   const accept = (ring: RingEvent) => {
-    ringer.current?.stop();
-    // Created inside the tap so iOS lets the call's audio play.
+    // Fully stop and unload the ringtone before the call's audio starts (no competing audio session).
+    ringer.current?.release();
+    setRingArmed(false);
+    // Inside the tap: open mic (echo cancellation, mono 48 kHz) and camera now, so they publish the moment we connect.
+    const tracks = createLocalTracks({ audio: CALL_AUDIO, video: CALL_VIDEO }).catch(() =>
+      createLocalTracks({ audio: CALL_AUDIO, video: false }),
+    );
     const room = newCallRoom();
     void room.startAudio().catch(() => undefined);
     void send("accepted", ring.call_id);
-    setScreen({ kind: "call", ring, room });
+    setScreen({ kind: "call", ring, room, tracks });
   };
 
   const decline = (ring: RingEvent) => {
     ringer.current?.stop();
+    armRinger();
     void send("declined", ring.call_id);
     setScreen({ kind: "idle" });
   };
@@ -114,8 +126,10 @@ export function CallApp({ role }: { role: CallRole }) {
         role={role}
         ring={screen.ring}
         room={screen.room}
+        tracks={screen.tracks}
         code={prefs?.code ?? ""}
         onEnded={(note) => {
+          armRinger(); // works when End was tapped; otherwise Idle offers a tap to turn the ringtone back on
           void send("ended", screen.ring.call_id);
           setScreen({ kind: "idle", note });
         }}
@@ -127,6 +141,8 @@ export function CallApp({ role }: { role: CallRole }) {
       role={role}
       status={status}
       note={screen.note}
+      ringArmed={ringArmed}
+      onArm={armRinger}
       onSettings={() => {
         savePrefs(role, null);
         setScreen({ kind: "setup" });
@@ -263,7 +279,21 @@ const STATUS: Record<SignalStatus, { color: string; text: string }> = {
   error: { color: "bg-red-500", text: "Offline — check the internet" },
 };
 
-function Idle({ role, status, note, onSettings }: { role: CallRole; status: SignalStatus; note?: string; onSettings: () => void }) {
+function Idle({
+  role,
+  status,
+  note,
+  ringArmed,
+  onArm,
+  onSettings,
+}: {
+  role: CallRole;
+  status: SignalStatus;
+  note?: string;
+  ringArmed: boolean;
+  onArm: () => void;
+  onSettings: () => void;
+}) {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -292,6 +322,11 @@ function Idle({ role, status, note, onSettings }: { role: CallRole; status: Sign
         <p className="text-2xl text-white/75">Waiting for calls</p>
         {note && <p className="rounded-full bg-white/10 px-5 py-2 text-xl text-white/80">{note}</p>}
       </div>
+      {!ringArmed && (
+        <button onClick={onArm} className="mx-auto mb-3 min-h-14 w-full max-w-md rounded-full bg-white/15 text-xl font-semibold">
+          Tap to turn the ringtone on
+        </button>
+      )}
       <p className="pb-2 text-center text-base text-white/40">Keep this app open. The screen stays on.</p>
     </Shell>
   );

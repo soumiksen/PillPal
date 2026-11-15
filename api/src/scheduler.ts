@@ -11,6 +11,8 @@
  *   3. pending > MISSED_AFTER_MIN → missed; 2+ missed today → orange alert + caregiver text (once a day)
  *   4. 3 taken in a row (newest today) → 🎉 celebration message, once per streak
  *   5. pills_left ≤ 5 → caregiver text + pharmacy info, once a day per med (also checked on every "taken")
+ * Only patients with consent_at set and their own phone number on file are considered (no PATIENT_PHONE fallback),
+ * and a patient with no active medications is skipped, so test patients never get reminders or calls.
  * Logs counts only.
  */
 import cron from "node-cron";
@@ -225,7 +227,10 @@ async function tickPatient(patient: PatientRow, now: Date, s: TickSummary): Prom
 /** One scheduler pass over every patient. Exported for /dev/scheduler/tick and tests. */
 export async function tick(now = new Date()): Promise<TickSummary> {
   const s: TickSummary = { patients: 0, reminders: 0, dials: 0, missed: 0, alerts: 0, celebrations: 0, low_pill_notices: 0 };
-  const patients = must("list patients", await db.from("patients").select("*")) as PatientRow[];
+  const patients = must(
+    "list patients",
+    await db.from("patients").select("*").not("consent_at", "is", null).not("phone", "is", null).neq("phone", ""),
+  ) as PatientRow[];
   for (const p of patients) {
     s.patients++;
     try {

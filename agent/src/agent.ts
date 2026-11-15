@@ -18,7 +18,28 @@ import { buildInstructions } from "./prompt.js";
 import { MixedAudioInput } from "./mixer.js";
 import { buildTools, escalateNow, type CallState } from "./tools.js";
 
-const GEMINI_LIVE_MODEL = process.env.GEMINI_LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025";
+/**
+ * Gemini Live model. PAL_REALTIME_MODEL switches it without code changes (GEMINI_LIVE_MODEL still works).
+ * Ids known to @livekit/agents-plugin-google 1.10.0 (LiveAPIModels): gemini-3.8-live, gemini-3.8-live-extended-thinking,
+ * gemini-3.1-flash-live-preview, gemini-live-2.5-flash-native-audio, gemini-live-2.5-flash-preview-native-audio,
+ * gemini-live-2.5-flash-preview-native-audio-09-2025, gemini-2.5-flash-native-audio-preview-12-2025, gemini-2.0-flash-exp.
+ */
+const GEMINI_LIVE_MODEL =
+  process.env.PAL_REALTIME_MODEL ?? process.env.GEMINI_LIVE_MODEL ?? "gemini-2.5-flash-native-audio-preview-12-2025";
+
+/**
+ * Server VAD tuned for phone calls: LOW start-of-speech sensitivity so Pal's own voice leaking from the phone speaker
+ * into its mic is less likely to count as the user talking, and ~500 ms of silence before end of speech.
+ * Barge-in stays on (activityHandling default = start of activity interrupts). Override with PAL_VAD_* env vars.
+ */
+const VAD = {
+  automaticActivityDetection: {
+    startOfSpeechSensitivity: (process.env.PAL_VAD_START ?? "START_SENSITIVITY_LOW") as never,
+    ...(process.env.PAL_VAD_END ? { endOfSpeechSensitivity: process.env.PAL_VAD_END as never } : {}),
+    prefixPaddingMs: Number(process.env.PAL_VAD_PREFIX_MS ?? 200),
+    silenceDurationMs: Number(process.env.PAL_VAD_SILENCE_MS ?? 500),
+  },
+};
 
 type JobMeta = { patient_id?: string; kind?: string; outbound?: boolean; transport?: string };
 
@@ -181,7 +202,50 @@ export default defineAgent({
         thinkingConfig: { thinkingBudget: Number(process.env.GEMINI_THINKING_BUDGET ?? 0), includeThoughts: false },
         inputAudioTranscription: {},
         outputAudioTranscription: {},
+        realtimeInputConfig: VAD,
+        // A dropped Gemini socket (e.g. 1011 internal error) reconnects at once instead of after 2 s; the plugin
+        // replays the chat context into the new session.
+        connOptions: { maxRetry: 4, retryIntervalMs: 0, timeoutMs: 10_000 },
       }),
+    });
+    console.log(`[pal] realtime model ${GEMINI_LIVE_MODEL}`);
+
+    // After a Gemini reconnect Pal says so once, then carries on (at most once per 15 s).
+    let lastSorry = 0;
+    session.on(voice.AgentSessionEventTypes.Error, (ev) => {
+      const err = ev.error as { type?: string; recoverable?: boolean };
+      if (err.type !== "realtime_model_error" || !err.recoverable) return;
+      console.log("[pal] realtime session dropped; reconnecting");
+      if (Date.now() - lastSorry < 15_000 || state.ended) return;
+      lastSorry = Date.now();
+      setTimeout(() => {
+        if (state.ended) return;
+        try {
+          session.generateReply({
+            instructions: `Say only "Sorry, I lost you for a second." in ${state.language === "en" ? "English" : "the patient's language"}, then continue the conversation where it was.`,
+          });
+        } catch {
+          /* the next user turn continues normally */
+        }
+      }, 1200);
+    });
+
+    // One line per turn with real timings: how long the user spoke, and how long until Pal started replying.
+    let userStartedAt = 0;
+    let userStoppedAt = 0;
+    session.on(voice.AgentSessionEventTypes.UserStateChanged, (ev) => {
+      const now = Date.now();
+      if (ev.newState === "speaking") userStartedAt = now;
+      else if (ev.oldState === "speaking" && userStartedAt) {
+        userStoppedAt = now;
+        console.log(`[pal] heard user (${now - userStartedAt} ms)`);
+      }
+    });
+    session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => {
+      if (ev.newState !== "speaking") return;
+      const latency = userStoppedAt ? `${Date.now() - userStoppedAt} ms` : "n/a";
+      console.log(`[pal] reply started (latency ${latency})`);
+      userStoppedAt = 0;
     });
 
     let groupAudio = false;
@@ -356,7 +420,10 @@ export default defineAgent({
       }
       humanJoined = true;
       syncAudio();
-      await waitForCallerAudio(room, first, 8000);
+      // The phone publishes its mic a moment after joining; greet only once Pal can hear it (≤ 5 s).
+      const micT0 = Date.now();
+      const heard = await waitForCallerAudio(room, first, 5000);
+      console.log(`[pal] ${heard ? `mic ready after ${Date.now() - micT0} ms` : "no mic after 5 s; greeting anyway"}`);
       await new Promise((r) => setTimeout(r, Math.min(delay, 1500)));
       if (state.ended) return;
       greeted = true;
