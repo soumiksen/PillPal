@@ -9,10 +9,10 @@ import { pcmToWav } from "./stubs.js";
 export const hasGemini = () => Boolean(process.env.GOOGLE_API_KEY);
 
 let _ai: GoogleGenAI | undefined;
-const ai = () => (_ai ??= new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY }));
+const ai = () => (_ai ??= new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY, httpOptions: { apiVersion: "v1beta" } }));
 
-const STT_MODEL = () => process.env.GEMINI_STT_MODEL ?? "gemini-2.5-flash";
-const TTS_MODEL = () => process.env.GEMINI_TTS_MODEL ?? "gemini-3.8-flash-tts";
+const STT_MODEL = () => process.env.GEMINI_STT_MODEL ?? "gemini-3.8-flash";
+const TTS_MODEL = () => process.env.GEMINI_TTS_MODEL ?? "gemini-2.5-flash-preview-tts";
 const TTS_VOICE = () => process.env.GEMINI_TTS_VOICE ?? "Kore";
 
 export async function geminiTranscribe(wav: Buffer): Promise<Transcription> {
@@ -78,7 +78,7 @@ async function ttsCached(key: string, text: string, lang: string): Promise<Buffe
 /** Newer TTS models use the Interactions API (returns a complete WAV); older ones return raw PCM via generateContent. */
 async function synthesize(text: string, lang: string): Promise<Buffer> {
   const client = ai();
-  try {
+  if (process.env.GEMINI_TTS_INTERACTIONS === "1") try {
     const it = await (client as unknown as {
       interactions: { create: (p: unknown) => Promise<{ output_audio?: { data?: string } }> };
     }).interactions.create({
@@ -96,8 +96,8 @@ async function synthesize(text: string, lang: string): Promise<Buffer> {
     /* fall through to the legacy path */
   }
   const res = await client.models.generateContent({
-    model: process.env.GEMINI_TTS_FALLBACK_MODEL ?? "gemini-2.5-flash-preview-tts",
-    contents: [{ role: "user", parts: [{ text: `Say warmly and slowly (language: ${lang}): ${text}` }] }],
+    model: TTS_MODEL(),
+    contents: [{ role: "user", parts: [{ text: `Say warmly and slowly: ${text}` }] }],
     config: {
       responseModalities: ["AUDIO"],
       speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: TTS_VOICE() } } },
