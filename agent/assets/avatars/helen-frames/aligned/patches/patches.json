@@ -1,0 +1,51 @@
+{
+  "mouth_closed": {
+    "x": 320,
+    "y": 330,
+    "w": 134,
+    "h": 100,
+    "source": "neutral"
+  },
+  "mouth_ah": {
+    "x": 320,
+    "y": 330,
+    "w": 134,
+    "h": 100,
+    "source": "mouth_ah"
+  },
+  "mouth_oo": {
+    "x": 320,
+    "y": 330,
+    "w": 134,
+    "h": 100,
+    "source": "mouth_oo"
+  },
+  "mouth_ee": {
+    "x": 320,
+    "y": 330,
+    "w": 134,
+    "h": 100,
+    "source": "mouth_ee"
+  },
+  "mouth_slight": {
+    "x": 320,
+    "y": 330,
+    "w": 134,
+    "h": 100,
+    "source": "mouth_slight"
+  },
+  "eyes_open": {
+    "x": 276,
+    "y": 196,
+    "w": 222,
+    "h": 90,
+    "source": "neutral"
+  },
+  "eyes_blink": {
+    "x": 276,
+    "y": 196,
+    "w": 222,
+    "h": 90,
+    "source": "blink"
+  }
+}
